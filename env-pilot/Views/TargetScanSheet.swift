@@ -2,19 +2,23 @@ import SwiftUI
 import SwiftData
 
 /// Monorepo 스캔 결과에서 Target을 선택해 생성 (PRD §3.5).
+/// 이미 등록된 경로도 "추가됨"으로 표시해 무엇이 탐지됐는지 보여준다.
 struct TargetScanSheet: View {
     let repo: Repository
-    let candidates: [MonorepoScanner.Candidate]   // 기존 Target 제외된 신규 후보만
+    let candidates: [MonorepoScanner.Candidate]
     let onDone: () -> Void
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var selected: Set<String>
+    private let existingPaths: Set<String>
 
     init(repo: Repository, candidates: [MonorepoScanner.Candidate], onDone: @escaping () -> Void) {
         self.repo = repo
         self.candidates = candidates
         self.onDone = onDone
-        _selected = State(initialValue: Set(candidates.map(\.relativePath)))
+        let existing = Set((repo.targets ?? []).map(\.relativePath))
+        existingPaths = existing
+        _selected = State(initialValue: Set(candidates.map(\.relativePath)).subtracting(existing))
     }
 
     var body: some View {
@@ -24,17 +28,23 @@ struct TargetScanSheet: View {
                 .padding()
 
             List(candidates, id: \.relativePath) { candidate in
-                Toggle(isOn: binding(for: candidate.relativePath)) {
+                let isExisting = existingPaths.contains(candidate.relativePath)
+                Toggle(isOn: isExisting ? .constant(true) : binding(for: candidate.relativePath)) {
                     HStack {
-                        Text(candidate.relativePath).fontDesign(.monospaced)
+                        Text(candidate.relativePath == "." ? ". (Root)" : candidate.relativePath)
+                            .fontDesign(.monospaced)
                         Spacer()
                         if candidate.hasExample {
                             Label(".env.example", systemImage: "doc.text")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
+                        if isExisting {
+                            Text("추가됨").font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                 }
+                .disabled(isExisting)
             }
 
             HStack {
@@ -60,7 +70,8 @@ struct TargetScanSheet: View {
     }
 
     private func add() {
-        for candidate in candidates where selected.contains(candidate.relativePath) {
+        for candidate in candidates
+        where selected.contains(candidate.relativePath) && !existingPaths.contains(candidate.relativePath) {
             let target = Target.makeWithDefaults(relativePath: candidate.relativePath)
             target.repository = repo
             context.insert(target)

@@ -397,10 +397,10 @@ struct RepositoryDetailView: View {
             return
         }
         let existingPaths = Set(targets.map(\.relativePath))
-        let newCandidates = MonorepoScanner.scan(rootURL: rootURL)
-            .filter { !existingPaths.contains($0.relativePath) }
-        if !newCandidates.isEmpty {
-            scanCandidates = newCandidates
+        let candidates = MonorepoScanner.scan(rootURL: rootURL)
+        // 이미 등록된 Target도 시트에 "추가됨"으로 표시 — 신규 후보가 있을 때만 시트를 띄운다
+        if candidates.contains(where: { !existingPaths.contains($0.relativePath) }) {
+            scanCandidates = candidates
         } else if !auto {
             generateError = "새로운 Monorepo Target 후보가 없습니다."
         }
