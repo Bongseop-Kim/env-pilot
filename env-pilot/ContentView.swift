@@ -19,6 +19,8 @@ struct ContentView: View {
     @AppStorage("selectedEnvironment") private var selectedEnvironment = "Local"
     @State private var selection: SidebarItem?
     @State private var showImporter = false
+    @State private var showBundleImporter = false
+    @State private var bundleData: Data?
     @State private var errorMessage: String?
     @State private var healthByRepo: [String: HealthStatus] = [:]
 
@@ -59,6 +61,10 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 180, ideal: 220)
             .toolbar {
                 Button("Repository 추가", systemImage: "plus") { showImporter = true }
+                Button(".envide 가져오기", systemImage: "square.and.arrow.down.on.square") {
+                    showBundleImporter = true
+                }
+                .help(".envide 번들 가져오기 (§3.14)")
             }
             .overlay {
                 if repositories.isEmpty {
@@ -102,6 +108,21 @@ struct ContentView: View {
                 selection = .repository(repo.persistentModelID)
             } catch {
                 errorMessage = error.localizedDescription
+            }
+        }
+        .fileImporter(isPresented: $showBundleImporter, allowedContentTypes: [.envide, .json]) { result in
+            guard case .success(let url) = result else { return }
+            let hasAccess = url.startAccessingSecurityScopedResource()
+            defer { if hasAccess { url.stopAccessingSecurityScopedResource() } }
+            do {
+                bundleData = try Data(contentsOf: url)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+        .sheet(isPresented: .constant(bundleData != nil), onDismiss: { bundleData = nil }) {
+            if let bundleData, let workspace = workspaces.first {
+                BundleImportSheet(data: bundleData, workspace: workspace)
             }
         }
         .alert("오류", isPresented: .constant(errorMessage != nil)) {
@@ -160,6 +181,7 @@ struct RepositoryDetailView: View {
     @State private var safetyReports: [GitSafetyService.Report] = []
     @State private var scanCandidates: [MonorepoScanner.Candidate]?
     @State private var pendingAddKey: String?
+    @State private var showExport = false
 
     enum DetailTab { case variables, compare, health, gitChanges }
 
@@ -183,6 +205,13 @@ struct RepositoryDetailView: View {
                 .help("Monorepo Target 탐색 및 example 변경 감지")
             Button("Generate", systemImage: "square.and.arrow.down") { prepareGenerate() }
                 .help("\(environmentName) 기준으로 .env 파일 생성")
+            Button("Export", systemImage: "square.and.arrow.up") { showExport = true }
+                .help(".envide 번들로 내보내기 (§3.14)")
+        }
+        .sheet(isPresented: $showExport) {
+            if let workspace = repo.workspace {
+                ExportSheet(repo: repo, workspace: workspace)
+            }
         }
         .task(id: repo.uuid) {
             refreshDiffs()
