@@ -435,3 +435,20 @@ EnvIDE/
 | 2 | Monorepo 탐색, example diff 감지/처리 | 실제 모노레포에서 `git pull` 후 새 키를 앱 안에서 처리할 수 있다 |
 | 3 | Health, Compare, History, Import, Git Safety | 사이드바만 봐도 모든 프로젝트의 env 상태를 파악할 수 있다 |
 | 4 | iCloud Sync, Export/Import 번들 | 두 번째 Mac에서 로컬 경로 지정만으로 동일한 Generate 결과를 얻는다 |
+
+---
+
+## 7. 의도된 단순화 (Phase 4 완료 시점 검토 결과)
+
+개인 개발자용 규모(§1.3)에서는 문제가 되지 않아 의도적으로 수용한 사항들. 조건이 바뀌면 재검토한다.
+
+| 항목 | 내용 | 재검토 조건 |
+|---|---|---|
+| Repository 삭제 잔여물 | 삭제 시 Variable은 cascade로 지워지지만 Keychain의 Secret과 UserDefaults의 `bookmark.{uuid}`, `monorepoScanned.{uuid}`는 남는다. 같은 uuid 번들 재import 시 Secret이 복원되는 부수 효과 있음 | Secret 완전 삭제가 요구사항이 되면 |
+| Export 다이얼로그 취소 | `ExportSheet`의 fileExporter가 `.constant` 바인딩 — 취소 시 재표시될 수 있음 | 실사용에서 재현되면 `@State` Bool로 교체 |
+| Secret 생성 순서 | `VariableService.create`가 insert 후 Keychain 저장 — Keychain 실패 시 빈 Variable이 남을 수 있음 | Keychain 실패가 실제로 관측되면 |
+| FSEvents 감시 없음 (§3.6 ③) | example 변경 감지는 앱 활성화 + 수동 Scan만. `git pull` 후 앱 전환 시점에 감지되므로 실용상 충분 | 앱을 띄워둔 채 감지가 필요해지면 |
+| 메뉴바 Generate 무확인 실행 (§3.4) | diff 확인·Git Safety 검사 없이 즉시 실행 — 앱 데이터가 `.env`의 유일한 소스라는 전제(§6 Phase 1 DoD) | 전제가 깨지는 워크플로가 생기면 |
+| Git tracked 오탐 | `.git/index` 바이트 부분 매칭이라 하위 경로의 동명 파일이 tracked면 루트도 경고 — 오탐은 경고 과다 방향이라 안전 | 오탐이 거슬리면 index 포맷 파싱 |
+| Health 동기 검사 | 메뉴바/사이드바가 열릴 때마다 전 repo 파일 IO + Secret별 Keychain 읽기 | repo·Secret 수가 늘어 체감되면 캐시 |
+| Secret 표시 지속 | "일시 표시"(§3.3)가 행 재생성까지 유지됨 | — |
