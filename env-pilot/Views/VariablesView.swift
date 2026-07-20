@@ -62,12 +62,13 @@ struct VariablesView: View {
             } label: {
                 Label("Copy as…", systemImage: "doc.on.clipboard")
             }
-            .help("현재 Target × Environment 전체를 클립보드로 (§3.20)")
+            .help("현재 목록 전체를 dotenv / Shell exports / JSON 포맷으로 복사")
             Button("Example 생성", systemImage: "doc.badge.gearshape") { generateExample() }
-                .help("Variables로부터 \(target.examplePath) 역생성 (§3.17)")
+                .help("현재 변수들로부터 \(target.examplePath) 파일 생성")
             Button("Import", systemImage: "square.and.arrow.up") { showFilePicker = true }
-                .help("기존 .env 파일 가져오기")
+                .help("기존 .env 파일을 가져와 변수로 등록")
             Button("키 추가", systemImage: "plus") { addSheetKey = ""; showAdd = true }
+                .help("새 변수 추가")
         }
         .confirmationDialog("\(target.examplePath)이 이미 있고 내용이 다릅니다. 덮어쓸까요?",
                             isPresented: .constant(pendingExampleContent != nil), titleVisibility: .visible) {

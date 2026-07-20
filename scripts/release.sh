@@ -34,6 +34,11 @@ if ! security find-identity -v -p codesigning | grep -q "Developer ID Applicatio
     exit 1
 fi
 
+if ! command -v create-dmg >/dev/null; then
+    echo "create-dmg가 없습니다. brew install create-dmg 로 설치하세요." >&2
+    exit 1
+fi
+
 if ! xcrun notarytool history --keychain-profile "$notary_profile" >/dev/null 2>&1; then
     echo "notarytool 키체인 프로파일 \"$notary_profile\"을 확인할 수 없습니다. 다음으로 등록하세요:" >&2
     echo "  xcrun notarytool store-credentials \"$notary_profile\" --apple-id <Apple ID> --team-id DKYJDHFLUG" >&2
@@ -125,6 +130,45 @@ sparkle_tools="$derived_data/SourcePackages/artifacts/sparkle/Sparkle/bin"
 
 xmllint --noout "$release_dir/appcast.xml"
 
+# 첫 설치용 DMG(드래그앤드랍 설치 화면). Sparkle 업데이트는 zip을 쓰므로
+# generate_appcast가 DMG를 집어가지 않도록 appcast 생성 이후에 만든다.
+dmg="$release_dir/Env-Pilot-$version.dmg"
+dmg_staging="$derived_data/dmg-staging"
+mkdir "$dmg_staging"
+ditto "$app" "$dmg_staging/env-pilot.app"
+
+# assets/dmg-background.png가 있으면 배경으로 쓴다. 1080x760(@2x) 이미지는
+# 144dpi로 바꿔야 Finder 창(540x380) 크기에 맞게 표시된다.
+dmg_args=()
+background="$repo_root/assets/dmg-background.png"
+if [[ -f "$background" ]]; then
+    bg_prepared="$derived_data/dmg-background.png"
+    ditto "$background" "$bg_prepared"
+    if [[ "$(sips -g pixelWidth "$bg_prepared" | awk '/pixelWidth:/ {print $2}')" == "1080" ]]; then
+        sips -s dpiWidth 144 -s dpiHeight 144 "$bg_prepared" >/dev/null
+    fi
+    dmg_args+=(--background "$bg_prepared")
+fi
+
+create-dmg \
+    --volname "Env Pilot" \
+    --volicon "$app/Contents/Resources/AppIcon.icns" \
+    --window-size 540 380 \
+    --icon-size 128 \
+    --icon "env-pilot.app" 140 180 \
+    --app-drop-link 400 180 \
+    --hide-extension "env-pilot.app" \
+    "${dmg_args[@]}" \
+    "$dmg" \
+    "$dmg_staging"
+
+identity="$(security find-identity -v -p codesigning | awk -F '"' '/Developer ID Application/ {print $2; exit}')"
+codesign --sign "$identity" "$dmg"
+
+xcrun notarytool submit "$dmg" --keychain-profile "$notary_profile" --wait
+xcrun stapler staple "$dmg"
+xcrun stapler validate "$dmg"
+
 if $publish; then
     tag_commit="$(git rev-list -n 1 "$tag" 2>/dev/null || true)"
     if [[ "$tag_commit" != "$(git rev-parse HEAD)" ]]; then
@@ -133,6 +177,7 @@ if $publish; then
     fi
     gh release create "$tag" \
         "$archive" \
+        "$dmg" \
         "$release_dir/appcast.xml" \
         --verify-tag \
         --title "Env Pilot $version" \

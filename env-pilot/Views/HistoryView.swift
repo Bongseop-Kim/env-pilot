@@ -48,10 +48,12 @@ struct HistoryView: View {
                 Text("전체 Repository").tag("전체")
                 ForEach(Set(entries.map(\.repositoryName)).sorted(), id: \.self) { Text($0).tag($0) }
             }
+            .help("Repository별 이력 필터")
             Picker("Environment", selection: $environmentFilter) {
                 Text("전체 Environment").tag("전체")
                 ForEach(Set(entries.map(\.environmentName)).sorted(), id: \.self) { Text($0).tag($0) }
             }
+            .help("Environment별 이력 필터")
             Button("이력 삭제", systemImage: "trash") { showDeleteAllConfirm = true }
                 .help(repositoryFilter == "전체" && environmentFilter == "전체"
                       ? "전체 이력 삭제" : "필터에 표시된 이력 삭제")

@@ -39,6 +39,7 @@ struct env_pilotApp: App {
         WindowGroup(id: "main") {
             ContentView()
         }
+        .windowToolbarStyle(.unified(showsTitle: false))  // 툴바에 앱 이름 표시 안 함
         .modelContainer(container)
         .commands {
             CommandGroup(after: .appInfo) {

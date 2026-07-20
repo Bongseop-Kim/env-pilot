@@ -70,6 +70,7 @@ struct ContentView: View {
                         } label: {
                             Label("Repository 추가", systemImage: "plus")
                         }
+                        .help("프로젝트 폴더를 Repository로 등록")
                         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.folder]) { result in
                             guard case .success(let url) = result, let workspace = workspaces.first else { return }
                             do {
@@ -88,7 +89,7 @@ struct ContentView: View {
                         } label: {
                             Image(systemName: "square.and.arrow.down.on.square")
                         }
-                        .help(".envide 번들 가져오기 (§3.14)")
+                        .help(".envide 번들 가져오기 — 다른 Mac이나 팀원이 내보낸 환경변수 묶음")
                         .fileImporter(isPresented: $showBundleImporter,
                                       allowedContentTypes: [.envide, .json]) { result in
                             guard case .success(let url) = result else { return }
@@ -139,6 +140,7 @@ struct ContentView: View {
                 }
                 .pickerStyle(.menu)
                 .fixedSize()
+                .help("Environment 전환 — Variables/Health/Generate가 이 환경 기준으로 동작합니다")
             }
         }
         .sheet(isPresented: .constant(bundleData != nil), onDismiss: { bundleData = nil }) {
@@ -223,15 +225,13 @@ struct RepositoryDetailView: View {
             tabContent
         }
         .frame(maxHeight: .infinity, alignment: .top)
-        .navigationTitle(repo.name)
-        .navigationSubtitle("\(selectedTargetPath) · \(environmentName)")
         .toolbar {
             Button("Scan", systemImage: "arrow.trianglehead.2.clockwise") { scanMonorepo(auto: false) }
-                .help("Monorepo Target 탐색 및 example 변경 감지")
+                .help("Scan — Monorepo Target 탐색 및 .env.example 변경 감지")
             Button("Generate", systemImage: "square.and.arrow.down") { prepareGenerate() }
-                .help("\(environmentName) 기준으로 .env 파일 생성")
+                .help("Generate — \(environmentName) 환경 기준으로 .env 파일 생성")
             Button("Export", systemImage: "square.and.arrow.up") { showExport = true }
-                .help(".envide 번들로 내보내기 (§3.14)")
+                .help("Export — .envide 번들로 내보내기 (다른 Mac·팀원과 공유)")
         }
         .sheet(isPresented: $showExport) {
             if let workspace = repo.workspace {

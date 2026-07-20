@@ -84,14 +84,14 @@ struct GitChangesView: View {
                         if drift.fileExists {
                             Button("가져오기") { onImportDrift(drift) }
                                 .buttonStyle(.bordered).controlSize(.small)
-                                .help("파일 내용을 앱으로 가져오기 (§3.12)")
+                                .help("파일 내용을 앱으로 가져오기")
                             Button("무시") { onIgnoreDrift(drift) }
                                 .buttonStyle(.bordered).controlSize(.small)
                                 .help("현재 파일 내용을 새 기준점으로 인정")
                         }
                         Button("덮어쓰기") { onOverwriteDrift(drift) }
                             .buttonStyle(.bordered).controlSize(.small)
-                            .help("앱 데이터로 재생성 (§3.4)")
+                            .help("앱에 저장된 변수로 파일을 다시 생성")
                     }
                     .padding(.vertical, 2)
                 }
