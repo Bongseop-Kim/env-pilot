@@ -34,6 +34,7 @@ final class EnvEnvironment {
 
 @Model
 final class Repository {
+    var uuid: String = UUID().uuidString   // Keychain 계정 키용 안정 식별자 (persistentID는 기기별로 다름)
     var name: String = ""
     var gitRemoteURL: String? = nil        // 예: git@github.com:me/blog.git
     var defaultBranch: String? = nil       // 예: main

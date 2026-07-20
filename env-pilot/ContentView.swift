@@ -11,15 +11,25 @@ struct ContentView: View {
     @Environment(\.modelContext) private var context
     @Query private var workspaces: [Workspace]
     @Query(sort: \Repository.createdAt) private var repositories: [Repository]
+    @AppStorage("selectedEnvironment") private var selectedEnvironment = "Local"
     @State private var selection: Repository?
     @State private var showImporter = false
     @State private var errorMessage: String?
+
+    private var environmentNames: [String] {
+        (workspaces.first?.environments ?? [])
+            .sorted { $0.sortOrder < $1.sortOrder }
+            .map(\.name)
+    }
 
     var body: some View {
         NavigationSplitView {
             List(repositories, selection: $selection) { repo in
                 Label(repo.name, systemImage: "folder")
                     .tag(repo)
+                    .contextMenu {
+                        Button("삭제", role: .destructive) { deleteRepo(repo) }
+                    }
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 220)
             .toolbar {
@@ -36,10 +46,21 @@ struct ContentView: View {
             }
         } detail: {
             if let repo = selection {
-                RepositoryDetailView(repo: repo, onDelete: { deleteRepo(repo) })
+                RepositoryDetailView(repo: repo, environmentName: selectedEnvironment)
+                    .id(repo.persistentModelID)  // repo 전환 시 상태 초기화
             } else {
                 Text("Repository를 선택하세요")
                     .foregroundStyle(.secondary)
+            }
+        }
+        .toolbar {
+            // 전역 Environment 셀렉터 (PRD §4.2) — 전환 시 모든 화면이 해당 환경 기준
+            ToolbarItem(placement: .primaryAction) {
+                Picker("Environment", selection: $selectedEnvironment) {
+                    ForEach(environmentNames, id: \.self) { Text($0).tag($0) }
+                }
+                .pickerStyle(.menu)
+                .fixedSize()
             }
         }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.folder]) { result in
@@ -66,48 +87,62 @@ struct ContentView: View {
 
 struct RepositoryDetailView: View {
     let repo: Repository
-    let onDelete: () -> Void
+    let environmentName: String
     @Environment(\.modelContext) private var context
+    @State private var selectedTargetPath: String = "."
     @State private var showRelinker = false
 
     private var isLinked: Bool { RepositoryService.resolveBookmark(repo) != nil }
+    private var targets: [Target] { (repo.targets ?? []).sorted { $0.relativePath < $1.relativePath } }
+    private var selectedTarget: Target? {
+        targets.first { $0.relativePath == selectedTargetPath } ?? targets.first
+    }
 
     var body: some View {
-        Form {
-            Section("정보") {
-                LabeledContent("이름", value: repo.name)
-                LabeledContent("경로", value: repo.localPathDisplay ?? "-")
-                LabeledContent("Remote", value: repo.gitRemoteURL ?? "Git remote 없음")
-                LabeledContent("Branch", value: repo.defaultBranch ?? "-")
+        VStack(spacing: 0) {
+            header
+            Divider()
+            if let target = selectedTarget {
+                VariablesView(target: target, environmentName: environmentName)
+                    .id("\(target.persistentModelID)-\(environmentName)")
+            } else {
+                Text("Target이 없습니다").foregroundStyle(.secondary)
+                    .frame(maxHeight: .infinity)
             }
+        }
+        .navigationTitle(repo.name)
+        .navigationSubtitle("\(selectedTargetPath) · \(environmentName)")
+        .fileImporter(isPresented: $showRelinker, allowedContentTypes: [.folder]) { result in
+            guard case .success(let url) = result else { return }
+            try? RepositoryService.relink(repo: repo, folderURL: url, context: context)
+        }
+    }
 
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 6) {
             if !isLinked {
-                Section {
+                HStack {
                     Label("이 Mac에서 폴더에 접근할 수 없습니다", systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
                     Button("폴더 다시 연결…") { showRelinker = true }
                 }
             }
-
-            Section("Targets") {
-                ForEach(repo.targets ?? []) { target in
-                    LabeledContent(target.relativePath) {
-                        Text("\(target.examplePath) → \(target.outputPath)")
-                            .foregroundStyle(.secondary)
+            HStack {
+                if targets.count > 1 {
+                    Picker("Target", selection: $selectedTargetPath) {
+                        ForEach(targets, id: \.relativePath) { Text($0.relativePath).tag($0.relativePath) }
                     }
+                    .fixedSize()
                 }
-            }
-
-            Section {
-                Button("Repository 삭제", role: .destructive, action: onDelete)
+                Spacer()
+                Text(repo.gitRemoteURL ?? repo.localPathDisplay ?? "")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
         }
-        .formStyle(.grouped)
-        .navigationTitle(repo.name)
-        .fileImporter(isPresented: $showRelinker, allowedContentTypes: [.folder]) { result in
-            guard case .success(let url) = result else { return }
-            try? RepositoryService.relink(repo: repo, folderURL: url, context: context)
-        }
+        .padding(10)
     }
 }
 

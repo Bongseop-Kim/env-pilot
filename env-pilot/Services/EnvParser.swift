@@ -14,8 +14,8 @@ enum EnvParser {
         var warnings: [String] = []
     }
 
-    /// 키 유효성: [A-Za-z_][A-Za-z0-9_]*
-    private static func isValidKey(_ key: String) -> Bool {
+    /// 키 유효성: [A-Za-z_][A-Za-z0-9_]* (VariableService에서도 사용)
+    static func isValidKey(_ key: String) -> Bool {
         guard let first = key.first, first.isLetter && first.isASCII || first == "_" else { return false }
         return key.dropFirst().allSatisfy { ($0.isLetter || $0.isNumber) && $0.isASCII || $0 == "_" }
     }
