@@ -59,12 +59,52 @@ struct ContentView: View {
                 }
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 220)
-            .toolbar {
-                Button("Repository 추가", systemImage: "plus") { showImporter = true }
-                Button(".envide 가져오기", systemImage: "square.and.arrow.down.on.square") {
-                    showBundleImporter = true
+            // 사이드바 toolbar는 접기/펼치기 후 아이템이 사라지는 macOS 버그가 있어 하단 바로 배치.
+            // fileImporter는 같은 뷰에 2개 붙이면 한쪽이 동작하지 않아 버튼별로 분리.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(spacing: 0) {
+                    Divider()
+                    HStack {
+                        Button {
+                            showImporter = true
+                        } label: {
+                            Label("Repository 추가", systemImage: "plus")
+                        }
+                        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.folder]) { result in
+                            guard case .success(let url) = result, let workspace = workspaces.first else { return }
+                            do {
+                                let repo = try RepositoryService.register(
+                                    folderURL: url, workspace: workspace, context: context)
+                                selection = .repository(repo.persistentModelID)
+                            } catch {
+                                errorMessage = error.localizedDescription
+                            }
+                        }
+
+                        Spacer()
+
+                        Button {
+                            showBundleImporter = true
+                        } label: {
+                            Image(systemName: "square.and.arrow.down.on.square")
+                        }
+                        .help(".envide 번들 가져오기 (§3.14)")
+                        .fileImporter(isPresented: $showBundleImporter,
+                                      allowedContentTypes: [.envide, .json]) { result in
+                            guard case .success(let url) = result else { return }
+                            let hasAccess = url.startAccessingSecurityScopedResource()
+                            defer { if hasAccess { url.stopAccessingSecurityScopedResource() } }
+                            do {
+                                bundleData = try Data(contentsOf: url)
+                            } catch {
+                                errorMessage = error.localizedDescription
+                            }
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .padding(8)
                 }
-                .help(".envide 번들 가져오기 (§3.14)")
+                .background(.bar)
             }
             .overlay {
                 if repositories.isEmpty {
@@ -99,25 +139,6 @@ struct ContentView: View {
                 }
                 .pickerStyle(.menu)
                 .fixedSize()
-            }
-        }
-        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.folder]) { result in
-            guard case .success(let url) = result, let workspace = workspaces.first else { return }
-            do {
-                let repo = try RepositoryService.register(folderURL: url, workspace: workspace, context: context)
-                selection = .repository(repo.persistentModelID)
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        }
-        .fileImporter(isPresented: $showBundleImporter, allowedContentTypes: [.envide, .json]) { result in
-            guard case .success(let url) = result else { return }
-            let hasAccess = url.startAccessingSecurityScopedResource()
-            defer { if hasAccess { url.stopAccessingSecurityScopedResource() } }
-            do {
-                bundleData = try Data(contentsOf: url)
-            } catch {
-                errorMessage = error.localizedDescription
             }
         }
         .sheet(isPresented: .constant(bundleData != nil), onDismiss: { bundleData = nil }) {
