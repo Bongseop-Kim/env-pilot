@@ -13,7 +13,7 @@ struct VariablesView: View {
 
     private var variables: [Variable] {
         (target.variables ?? [])
-            .filter { $0.environmentName == environmentName }
+            .filter { $0.environmentName == environmentName && !$0.isIgnored }
             .filter {
                 search.isEmpty
                     || $0.key.localizedCaseInsensitiveContains(search)

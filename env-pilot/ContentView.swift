@@ -91,6 +91,9 @@ struct RepositoryDetailView: View {
     @Environment(\.modelContext) private var context
     @State private var selectedTargetPath: String = "."
     @State private var showRelinker = false
+    @State private var generatePlans: [GenerateService.Plan]?
+    @State private var generateRootURL: URL?
+    @State private var generateError: String?
 
     private var isLinked: Bool { RepositoryService.resolveBookmark(repo) != nil }
     private var targets: [Target] { (repo.targets ?? []).sorted { $0.relativePath < $1.relativePath } }
@@ -112,10 +115,33 @@ struct RepositoryDetailView: View {
         }
         .navigationTitle(repo.name)
         .navigationSubtitle("\(selectedTargetPath) · \(environmentName)")
+        .toolbar {
+            Button("Generate", systemImage: "square.and.arrow.down") { prepareGenerate() }
+                .help("\(environmentName) 기준으로 .env 파일 생성")
+        }
+        .sheet(isPresented: .constant(generatePlans != nil), onDismiss: { generatePlans = nil }) {
+            if let plans = generatePlans, let rootURL = generateRootURL {
+                GenerateSheet(plans: plans, rootURL: rootURL, environmentName: environmentName)
+            }
+        }
+        .alert("Generate 불가", isPresented: .constant(generateError != nil)) {
+            Button("확인") { generateError = nil }
+        } message: {
+            Text(generateError ?? "")
+        }
         .fileImporter(isPresented: $showRelinker, allowedContentTypes: [.folder]) { result in
             guard case .success(let url) = result else { return }
             try? RepositoryService.relink(repo: repo, folderURL: url, context: context)
         }
+    }
+
+    private func prepareGenerate() {
+        guard let rootURL = RepositoryService.resolveBookmark(repo) else {
+            generateError = "폴더에 접근할 수 없습니다. 경로를 다시 연결하세요."
+            return
+        }
+        generateRootURL = rootURL
+        generatePlans = GenerateService.makePlans(repo: repo, rootURL: rootURL, environmentName: environmentName)
     }
 
     private var header: some View {
