@@ -20,10 +20,21 @@ struct env_pilotApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: "main") {
             ContentView()
         }
         .modelContainer(container)
+
+        // 메뉴바 빠른 기능 (PRD §4.4)
+        MenuBarExtra("Env IDE", systemImage: "key.fill") {
+            MenuBarView()
+                .modelContainer(container)
+        }
+
+        Settings {
+            SettingsView()
+                .modelContainer(container)
+        }
     }
 
     /// 첫 실행 시 기본 Workspace + Environment 4종 생성.

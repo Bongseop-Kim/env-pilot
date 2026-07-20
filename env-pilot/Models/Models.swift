@@ -103,6 +103,16 @@ final class HistoryEntry {
     }
 }
 
+extension Target {
+    /// Settings의 기본 경로 패턴을 적용해 생성 (§4.5).
+    static func makeWithDefaults(relativePath: String) -> Target {
+        let target = Target(relativePath: relativePath)
+        target.examplePath = UserDefaults.standard.string(forKey: "defaultExamplePath") ?? ".env.example"
+        target.outputPath = UserDefaults.standard.string(forKey: "defaultOutputPath") ?? ".env.local"
+        return target
+    }
+}
+
 extension Workspace {
     static let allModels: [any PersistentModel.Type] =
         [Workspace.self, EnvEnvironment.self, Repository.self, Target.self, Variable.self, HistoryEntry.self]

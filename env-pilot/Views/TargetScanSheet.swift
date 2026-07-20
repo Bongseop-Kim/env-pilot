@@ -61,7 +61,7 @@ struct TargetScanSheet: View {
 
     private func add() {
         for candidate in candidates where selected.contains(candidate.relativePath) {
-            let target = Target(relativePath: candidate.relativePath)
+            let target = Target.makeWithDefaults(relativePath: candidate.relativePath)
             target.repository = repo
             context.insert(target)
         }

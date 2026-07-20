@@ -110,6 +110,12 @@ struct ContentView: View {
             Text(errorMessage ?? "")
         }
         .task { refreshSidebarHealth() }
+        .onChange(of: environmentNames, initial: true) {
+            // Settings에서 Environment 삭제 시 선택값 폴백
+            if !environmentNames.isEmpty && !environmentNames.contains(selectedEnvironment) {
+                selectedEnvironment = environmentNames.first!
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshSidebarHealth()
