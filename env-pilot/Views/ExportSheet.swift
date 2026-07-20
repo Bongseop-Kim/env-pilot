@@ -73,7 +73,7 @@ struct ExportSheet: View {
         .padding(20)
         .frame(width: 380)
         .fileExporter(
-            isPresented: .constant(document != nil),
+            isPresented: Binding(presence: $document),
             document: document,
             contentType: .envide,
             defaultFilename: wholeWorkspace ? "\(workspace.name).envide" : "\(repo.name).envide"

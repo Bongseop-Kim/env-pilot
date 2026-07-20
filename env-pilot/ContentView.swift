@@ -143,7 +143,7 @@ struct ContentView: View {
                 .help("Environment 전환 — Variables/Health/Generate가 이 환경 기준으로 동작합니다")
             }
         }
-        .sheet(isPresented: .constant(bundleData != nil), onDismiss: { bundleData = nil }) {
+        .sheet(isPresented: Binding(presence: $bundleData)) {
             if let bundleData, let workspace = workspaces.first {
                 BundleImportSheet(data: bundleData, workspace: workspace)
             }
@@ -248,7 +248,7 @@ struct RepositoryDetailView: View {
             refreshDiffs()   // git pull 후 앱 전환 시 감지 (§3.6)
             refreshHealth()
         }
-        .sheet(isPresented: .constant(scanCandidates != nil), onDismiss: { scanCandidates = nil }) {
+        .sheet(isPresented: Binding(presence: $scanCandidates)) {
             if let candidates = scanCandidates {
                 TargetScanSheet(repo: repo, candidates: candidates) {
                     scanCandidates = nil
@@ -256,8 +256,7 @@ struct RepositoryDetailView: View {
                 }
             }
         }
-        .sheet(isPresented: .constant(driftImportPlan != nil), onDismiss: {
-            driftImportPlan = nil
+        .sheet(isPresented: Binding(presence: $driftImportPlan), onDismiss: {
             refreshDiffs()
         }) {
             if let plan = driftImportPlan {
@@ -265,8 +264,7 @@ struct RepositoryDetailView: View {
                             target: plan.target, environmentName: environmentName)
             }
         }
-        .sheet(isPresented: .constant(generatePlans != nil), onDismiss: {
-            generatePlans = nil
+        .sheet(isPresented: Binding(presence: $generatePlans), onDismiss: {
             refreshHealth()
             refreshDiffs()   // Generate 후 drift 기준점 갱신 반영 (§3.18)
         }) {
