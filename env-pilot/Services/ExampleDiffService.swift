@@ -1,0 +1,101 @@
+import Foundation
+import SwiftData
+
+/// .env.example 변경 감지와 처리 (PRD §3.6, §3.7).
+/// 키 존재 여부만 비교한다 (example 특성상 값 변경은 추적 안 함).
+enum ExampleDiffService {
+
+    struct Diff: Identifiable {
+        let target: Target
+        let addedKeys: [String]
+        let removedKeys: [String]
+        var id: String { target.relativePath }
+        var count: Int { addedKeys.count + removedKeys.count }
+    }
+
+    enum AddedAction { case addToAllEnvironments, ignore }
+    enum RemovedAction { case deleteFromAllEnvironments, ignore }
+
+    /// 모든 Target의 example을 스냅샷과 비교. 스냅샷 없는 최초 스캔은 저장만 하고 diff를 만들지 않는다 (§3.6).
+    static func scan(repo: Repository, rootURL: URL, context: ModelContext) -> [Diff] {
+        let hasAccess = rootURL.startAccessingSecurityScopedResource()
+        defer { if hasAccess { rootURL.stopAccessingSecurityScopedResource() } }
+
+        var diffs: [Diff] = []
+        for target in (repo.targets ?? []).sorted(by: { $0.relativePath < $1.relativePath }) {
+            let dir = target.relativePath == "."
+                ? rootURL
+                : rootURL.appendingPathComponent(target.relativePath)
+            guard let content = try? String(
+                contentsOf: dir.appendingPathComponent(target.examplePath), encoding: .utf8
+            ) else { continue }   // example 파일 없으면 스킵
+
+            guard let snapshot = target.exampleSnapshot else {
+                target.exampleSnapshot = content
+                continue
+            }
+            let currentKeys = keys(of: content)
+            let snapshotKeys = keys(of: snapshot)
+            let added = currentKeys.subtracting(snapshotKeys).sorted()
+            let removed = snapshotKeys.subtracting(currentKeys).sorted()
+            if !added.isEmpty || !removed.isEmpty {
+                diffs.append(Diff(target: target, addedKeys: added, removedKeys: removed))
+            }
+        }
+        try? context.save()
+        return diffs
+    }
+
+    static func keys(of content: String) -> Set<String> {
+        Set(EnvParser.parse(content).entries.map(\.key))
+    }
+
+    /// 추가된 키 처리: 모든 Environment에 빈 값 생성 또는 무시 마커 (§3.7).
+    static func resolveAdded(key: String, action: AddedAction, target: Target,
+                             environmentNames: [String], context: ModelContext) throws {
+        for environmentName in environmentNames {
+            let exists = (target.variables ?? []).contains {
+                $0.key == key && $0.environmentName == environmentName
+            }
+            guard !exists else { continue }
+            switch action {
+            case .addToAllEnvironments:
+                try VariableService.create(key: key, value: "", environmentName: environmentName,
+                                           target: target, context: context)
+            case .ignore:
+                // 무시 마커 — Health(§3.8)가 "무시 키 제외" 판정에 사용. History 기록 없음.
+                let marker = Variable(key: key, value: "", environmentName: environmentName)
+                marker.isIgnored = true
+                marker.target = target
+                context.insert(marker)
+            }
+        }
+        appendToSnapshot(key: key, target: target)
+        try context.save()
+    }
+
+    /// 삭제된 키 처리: 전 Environment에서 삭제 또는 무시 (§3.7).
+    static func resolveRemoved(key: String, action: RemovedAction, target: Target,
+                               context: ModelContext) throws {
+        if action == .deleteFromAllEnvironments {
+            for variable in (target.variables ?? []).filter({ $0.key == key }) {
+                try VariableService.delete(variable, context: context)
+            }
+        }
+        removeFromSnapshot(key: key, target: target)
+        try context.save()
+    }
+
+    // 처리된 키는 스냅샷에 반영해 같은 diff가 다시 나타나지 않게 한다 (§3.7 수용 기준).
+    private static func appendToSnapshot(key: String, target: Target) {
+        target.exampleSnapshot = (target.exampleSnapshot ?? "") + "\n\(key)="
+    }
+
+    private static func removeFromSnapshot(key: String, target: Target) {
+        guard let snapshot = target.exampleSnapshot else { return }
+        target.exampleSnapshot = snapshot
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { EnvParser.parse(String($0)).entries.first?.key != key }
+            .joined(separator: "\n")
+    }
+}
