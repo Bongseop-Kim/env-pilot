@@ -7,12 +7,19 @@
 
 import SwiftUI
 import SwiftData
+import Sparkle
 
 @main
 struct env_pilotApp: App {
     let container: ModelContainer
+    private let updaterController: SPUStandardUpdaterController
 
     init() {
+        updaterController = SPUStandardUpdaterController(
+            startingUpdater: true,
+            updaterDelegate: nil,
+            userDriverDelegate: nil
+        )
         // §3.13: iCloud 동기화 — 토글(Settings)은 재시작 후 적용. 컨테이너는 시작 시 1회 구성.
         // HistoryEntry는 관계 그래프 밖이라 명시 필요.
         let schema = Schema([Workspace.self, HistoryEntry.self])
@@ -33,6 +40,11 @@ struct env_pilotApp: App {
             ContentView()
         }
         .modelContainer(container)
+        .commands {
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesView(updater: updaterController.updater)
+            }
+        }
 
         // 메뉴바 빠른 기능 (PRD §4.4)
         MenuBarExtra("Env IDE", systemImage: "key.fill") {
