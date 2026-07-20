@@ -38,7 +38,7 @@ final class Repository {
     var name: String = ""
     var gitRemoteURL: String? = nil        // 예: git@github.com:me/blog.git
     var defaultBranch: String? = nil       // 예: main
-    var localPathBookmark: Data? = nil     // 보안 스코프 북마크 — 기기별 값 (다른 Mac에서는 재연결 필요)
+    var localPathBookmark: Data? = nil     // 레거시(Phase 3까지) — §3.13부터 UserDefaults "bookmark.{uuid}"에 저장, 읽는 시점에 이전
     var localPathDisplay: String? = nil    // UI 표시용 경로 문자열
     var createdAt: Date = Date()
     var workspace: Workspace?

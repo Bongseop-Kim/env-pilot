@@ -118,6 +118,7 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didBecomeActiveNotification)) { _ in
+            env_pilotApp.dedupeAfterSync(context)  // §3.13: CloudKit 병합 후 Workspace 중복 정리
             refreshSidebarHealth()
         }
     }

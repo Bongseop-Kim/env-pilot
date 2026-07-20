@@ -7,6 +7,7 @@ struct SettingsView: View {
     @Query private var workspaces: [Workspace]
     @AppStorage("defaultExamplePath") private var defaultExamplePath = ".env.example"
     @AppStorage("defaultOutputPath") private var defaultOutputPath = ".env.local"
+    @AppStorage("iCloudSyncEnabled") private var iCloudSyncEnabled = false
     @State private var newEnvironmentName = ""
     @State private var deleteCandidate: EnvEnvironment?
     @State private var deleteMessage = ""
@@ -50,6 +51,13 @@ struct SettingsView: View {
                 }
             }
 
+            Section("동기화") {
+                Toggle("iCloud 동기화", isOn: $iCloudSyncEnabled)
+                Text("같은 Apple 계정의 Mac 간에 데이터가 동기화됩니다. Secret은 iCloud Keychain으로 별도 동기화되며, 로컬 폴더 경로는 Mac마다 다시 연결해야 합니다. 변경은 앱을 다시 실행하면 적용됩니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("기본 경로") {
                 TextField("Example 파일", text: $defaultExamplePath)
                     .fontDesign(.monospaced)
@@ -61,7 +69,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 480, height: 460)
+        .frame(width: 480, height: 560)
         .confirmationDialog(deleteMessage, isPresented: .constant(deleteCandidate != nil), titleVisibility: .visible) {
             Button("삭제", role: .destructive) { confirmDelete() }
             Button("취소", role: .cancel) { deleteCandidate = nil }

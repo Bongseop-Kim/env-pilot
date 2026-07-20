@@ -16,6 +16,9 @@ enum RepositoryService {
         }
     }
 
+    /// §3.13: 북마크는 기기별 값 — CloudKit에 올라가지 않도록 SwiftData 대신 UserDefaults에 저장.
+    private static func bookmarkKey(_ repo: Repository) -> String { "bookmark.\(repo.uuid)" }
+
     /// fileImporter 등에서 받은 보안 스코프 URL로 Repository 등록.
     /// Git 저장소가 아니어도 등록은 허용 (Git 기능만 비활성, §3.1).
     @discardableResult
@@ -46,8 +49,8 @@ enum RepositoryService {
         let repo = Repository(name: folderURL.lastPathComponent)
         repo.gitRemoteURL = git?.remoteURL
         repo.defaultBranch = git?.currentBranch
-        repo.localPathBookmark = bookmark
         repo.localPathDisplay = path
+        UserDefaults.standard.set(bookmark, forKey: bookmarkKey(repo))
         repo.workspace = workspace
         context.insert(repo)
 
@@ -62,7 +65,14 @@ enum RepositoryService {
     /// 저장된 북마크 해석. stale이면 nil — UI에서 "경로 재연결" 유도 (§3.1).
     /// 반환된 URL은 사용 전 startAccessingSecurityScopedResource 필요.
     static func resolveBookmark(_ repo: Repository) -> URL? {
-        guard let bookmark = repo.localPathBookmark else { return nil }
+        var bookmark = UserDefaults.standard.data(forKey: bookmarkKey(repo))
+        if bookmark == nil, let legacy = repo.localPathBookmark {
+            // Phase 3까지는 모델에 저장 — UserDefaults로 이전하고 모델에서 비움 (mainContext 자동 저장)
+            UserDefaults.standard.set(legacy, forKey: bookmarkKey(repo))
+            repo.localPathBookmark = nil
+            bookmark = legacy
+        }
+        guard let bookmark else { return nil }
         var stale = false
         guard let url = try? URL(
             resolvingBookmarkData: bookmark,
@@ -78,11 +88,13 @@ enum RepositoryService {
         let hasAccess = folderURL.startAccessingSecurityScopedResource()
         defer { if hasAccess { folderURL.stopAccessingSecurityScopedResource() } }
 
-        repo.localPathBookmark = try folderURL.bookmarkData(
+        let bookmark = try folderURL.bookmarkData(
             options: .withSecurityScope,
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         )
+        UserDefaults.standard.set(bookmark, forKey: bookmarkKey(repo))
+        repo.localPathBookmark = nil  // 레거시 저장분 제거 (§3.13 동기화 제외)
         repo.localPathDisplay = folderURL.standardizedFileURL.path
         if let git = GitInfo.read(at: folderURL) {
             repo.gitRemoteURL = git.remoteURL
