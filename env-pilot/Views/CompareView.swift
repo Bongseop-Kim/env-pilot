@@ -12,6 +12,21 @@ struct CompareView: View {
         Set((target.variables ?? []).filter { !$0.isIgnored }.map(\.key)).sorted()
     }
 
+    /// §3.21 — 같은 키의 값이 동일한 다른 Environment 목록 (빈 값 제외). 정보성 경고, Health 미반영.
+    private func duplicateEnvironments(for key: String) -> [String: [String]] {
+        var valueByEnv: [String: String] = [:]
+        for variable in (target.variables ?? [])
+        where variable.key == key && !variable.isIgnored && environmentNames.contains(variable.environmentName) {
+            valueByEnv[variable.environmentName] = VariableService.value(of: variable)
+        }
+        var result: [String: [String]] = [:]
+        for (env, value) in valueByEnv where !value.isEmpty {
+            let others = valueByEnv.filter { $0.key != env && $0.value == value }.keys.sorted()
+            if !others.isEmpty { result[env] = others }
+        }
+        return result
+    }
+
     var body: some View {
         if keys.isEmpty {
             ContentUnavailableView("키가 없습니다", systemImage: "key",
@@ -28,10 +43,12 @@ struct CompareView: View {
                     }
                     Divider()
                     ForEach(keys, id: \.self) { key in
+                        let duplicates = duplicateEnvironments(for: key)
                         GridRow {
                             Text(key).fontDesign(.monospaced).fontWeight(.medium)
                             ForEach(environmentNames, id: \.self) { environmentName in
                                 CompareCell(target: target, key: key, environmentName: environmentName,
+                                            duplicateWith: duplicates[environmentName] ?? [],
                                             onError: { errorMessage = $0 })
                             }
                         }
@@ -52,6 +69,7 @@ private struct CompareCell: View {
     let target: Target
     let key: String
     let environmentName: String
+    let duplicateWith: [String]   // §3.21 같은 값을 가진 다른 Environment
     let onError: (String) -> Void
     @Environment(\.modelContext) private var context
     @State private var text = ""
@@ -63,6 +81,17 @@ private struct CompareCell: View {
     }
 
     var body: some View {
+        HStack(spacing: 4) {
+            cellContent
+            if !duplicateWith.isEmpty {
+                Text("🟡")
+                    .help("\(duplicateWith.joined(separator: ", "))와 값이 동일합니다")
+            }
+        }
+        .frame(minWidth: 140, alignment: .leading)
+    }
+
+    @ViewBuilder private var cellContent: some View {
         Group {
             if let variable {
                 if variable.isSecret {
@@ -93,6 +122,5 @@ private struct CompareCell: View {
                 .buttonStyle(.plain)
             }
         }
-        .frame(minWidth: 140, alignment: .leading)
     }
 }

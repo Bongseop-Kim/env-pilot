@@ -58,7 +58,11 @@ struct MenuBarView: View {
     private func generate(_ repo: Repository) {
         guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
         let plans = GenerateService.makePlans(repo: repo, rootURL: rootURL, environmentName: selectedEnvironment)
-        _ = GenerateService.execute(plans, rootURL: rootURL)
+        let errors = GenerateService.execute(plans, rootURL: rootURL)
+        if errors.isEmpty {
+            GenerateService.recordOutputHashes(plans: plans, repo: repo)  // §3.18 drift 기준점
+            try? context.save()
+        }
     }
 
     private func scanAll() {

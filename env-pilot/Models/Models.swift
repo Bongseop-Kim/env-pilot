@@ -56,6 +56,7 @@ final class Target {
     var examplePath: String = ".env.example"   // Target 기준 상대 경로
     var outputPath: String = ".env.local"      // Target 기준 상대 경로
     var exampleSnapshot: String? = nil         // 마지막으로 확인한 example 내용 (diff 기준점)
+    var outputHash: String? = nil              // 마지막 Generate 출력의 SHA256 (§3.18 drift 기준점)
     var repository: Repository?
     @Relationship(deleteRule: .cascade, inverse: \Variable.target)
     var variables: [Variable]? = []

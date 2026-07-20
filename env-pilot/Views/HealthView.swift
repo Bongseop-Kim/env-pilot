@@ -1,28 +1,55 @@
 import SwiftUI
 
-/// Health 탭 (PRD §3.8) — Target × Environment 판정 상세 + Git Safety 이슈.
+/// Health 탭 (PRD §3.8) — Target × Environment 판정 상세 + Git Safety 이슈 + pre-commit hook (§3.19).
 struct HealthView: View {
     let items: [HealthService.Item]
     let safetyReports: [GitSafetyService.Report]
+    let hookInstalled: Bool?   // nil = Git 저장소 아님 → hook 섹션 숨김
     let onSelectMissingKey: (_ targetPath: String, _ environmentName: String, _ key: String) -> Void
     let onAddToGitignore: (_ fileName: String) -> Void
     let onFixPermissions: (_ report: GitSafetyService.Report) -> Void
+    let onInstallHook: () -> Void
+    let onRemoveHook: () -> Void
 
     private var allHealthy: Bool {
         items.allSatisfy { $0.status == .healthy } && !safetyReports.contains(where: \.hasIssue)
     }
 
     var body: some View {
-        if items.isEmpty && safetyReports.allSatisfy({ !$0.hasIssue }) {
+        if items.isEmpty && safetyReports.allSatisfy({ !$0.hasIssue }) && hookInstalled == nil {
             ContentUnavailableView("판정 대상 없음", systemImage: "questionmark.circle",
                                    description: Text(".env.example이 있는 Target이 없습니다"))
-        } else if allHealthy {
-            ContentUnavailableView("All Healthy", systemImage: "checkmark.seal.fill",
-                                   description: Text("모든 Environment가 example 키를 충족합니다"))
         } else {
             List {
-                healthSections
-                safetySection
+                if allHealthy {
+                    Label("All Healthy — 모든 Environment가 example 키를 충족합니다",
+                          systemImage: "checkmark.seal.fill")
+                        .foregroundStyle(.green)
+                } else {
+                    healthSections
+                    safetySection
+                }
+                hookSection
+            }
+        }
+    }
+
+    /// §3.19 — 스테이징된 .env 파일 커밋을 차단하는 pre-commit hook 설치/제거.
+    @ViewBuilder private var hookSection: some View {
+        if let hookInstalled {
+            Section("pre-commit Hook") {
+                HStack {
+                    Label(hookInstalled
+                          ? "설치됨 — .env 파일 커밋이 차단됩니다"
+                          : ".env 파일 커밋을 차단하는 hook을 설치할 수 있습니다",
+                          systemImage: hookInstalled ? "checkmark.shield.fill" : "shield")
+                        .foregroundStyle(hookInstalled ? .green : .secondary)
+                    Spacer()
+                    Button(hookInstalled ? "제거" : "pre-commit hook 설치") {
+                        hookInstalled ? onRemoveHook() : onInstallHook()
+                    }
+                    .controlSize(.small)
+                }
             }
         }
     }

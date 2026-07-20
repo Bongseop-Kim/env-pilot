@@ -15,6 +15,7 @@ struct VariablesView: View {
     @State private var showFilePicker = false
     @State private var importPlan: (items: [ImportService.Item], warnings: [String])?
     @State private var errorMessage: String?
+    @State private var pendingExampleContent: String?   // §3.17 덮어쓰기 확인 대기 중인 내용
 
     private var variables: [Variable] {
         (target.variables ?? [])
@@ -54,9 +55,27 @@ struct VariablesView: View {
             }
         }
         .toolbar {
+            Menu {
+                ForEach(CopyFormat.allCases, id: \.self) { format in
+                    Button(format.rawValue) { copyAs(format) }
+                }
+            } label: {
+                Label("Copy as…", systemImage: "doc.on.clipboard")
+            }
+            .help("현재 Target × Environment 전체를 클립보드로 (§3.20)")
+            Button("Example 생성", systemImage: "doc.badge.gearshape") { generateExample() }
+                .help("Variables로부터 \(target.examplePath) 역생성 (§3.17)")
             Button("Import", systemImage: "square.and.arrow.up") { showFilePicker = true }
                 .help("기존 .env 파일 가져오기")
             Button("키 추가", systemImage: "plus") { addSheetKey = ""; showAdd = true }
+        }
+        .confirmationDialog("\(target.examplePath)이 이미 있고 내용이 다릅니다. 덮어쓸까요?",
+                            isPresented: .constant(pendingExampleContent != nil), titleVisibility: .visible) {
+            Button("덮어쓰기") {
+                if let content = pendingExampleContent { writeExample(content) }
+                pendingExampleContent = nil
+            }
+            Button("취소", role: .cancel) { pendingExampleContent = nil }
         }
         .sheet(isPresented: $showAdd) {
             AddVariableSheet(target: target, environmentName: environmentName, initialKey: addSheetKey)
@@ -85,6 +104,43 @@ struct VariablesView: View {
         }
     }
 
+    /// §3.20 — 현재 Target × Environment 전체를 지정 포맷으로 복사. Secret 포함 시 §3.16 자동 삭제.
+    private func copyAs(_ format: CopyFormat) {
+        let all = (target.variables ?? [])
+            .filter { $0.environmentName == environmentName && !$0.isIgnored }
+        let values = Dictionary(uniqueKeysWithValues: all.map { ($0.key, VariableService.value(of: $0)) })
+        ClipboardService.copy(format.render(values), clearAfterDelay: all.contains(where: \.isSecret))
+    }
+
+    /// §3.17 — example 역생성. 기존 파일과 다르면 덮어쓰기 확인.
+    private func generateExample() {
+        guard let repo = target.repository, let rootURL = RepositoryService.resolveBookmark(repo) else {
+            errorMessage = "폴더에 접근할 수 없습니다. 경로를 다시 연결하세요."
+            return
+        }
+        let content = ExampleDiffService.exampleContent(for: target)
+        let hasAccess = rootURL.startAccessingSecurityScopedResource()
+        let dir = target.relativePath == "." ? rootURL : rootURL.appendingPathComponent(target.relativePath)
+        let existing = try? String(contentsOf: dir.appendingPathComponent(target.examplePath), encoding: .utf8)
+        if hasAccess { rootURL.stopAccessingSecurityScopedResource() }
+
+        if let existing, existing != content {
+            pendingExampleContent = content   // §3.4와 동일한 덮어쓰기 확인
+        } else {
+            writeExample(content)
+        }
+    }
+
+    private func writeExample(_ content: String) {
+        guard let repo = target.repository, let rootURL = RepositoryService.resolveBookmark(repo) else { return }
+        do {
+            try ExampleDiffService.writeExample(content: content, target: target, rootURL: rootURL)
+            try context.save()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func importFile(_ url: URL) {
         let hasAccess = url.startAccessingSecurityScopedResource()
         defer { if hasAccess { url.stopAccessingSecurityScopedResource() } }
@@ -104,6 +160,7 @@ private struct VariableRow: View {
     @State private var valueText = ""
     @State private var noteText = ""
     @State private var revealed = false
+    @State private var showClipboardNote = false   // §3.16 복사 직후 안내
 
     var body: some View {
         HStack(spacing: 12) {
@@ -134,9 +191,19 @@ private struct VariableRow: View {
                 .frame(width: 180)
                 .onSubmit(commitNote)
 
+            if showClipboardNote {
+                Text("30초 후 클립보드에서 삭제됨")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Button("복사", systemImage: "doc.on.doc") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(VariableService.value(of: variable), forType: .string)
+                // Secret만 30초 후 자동 삭제 대상 (§3.16)
+                ClipboardService.copy(VariableService.value(of: variable),
+                                      clearAfterDelay: variable.isSecret)
+                if variable.isSecret {
+                    showClipboardNote = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { showClipboardNote = false }
+                }
             }
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)

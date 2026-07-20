@@ -177,6 +177,9 @@ struct RepositoryDetailView: View {
     @State private var generateError: String?
     @State private var tab: DetailTab = .variables
     @State private var diffs: [ExampleDiffService.Diff] = []
+    @State private var drifts: [GenerateService.Drift] = []
+    @State private var hookInstalled: Bool?
+    @State private var driftImportPlan: (items: [ImportService.Item], warnings: [String], target: Target)?
     @State private var healthItems: [HealthService.Item] = []
     @State private var safetyReports: [GitSafetyService.Report] = []
     @State private var scanCandidates: [MonorepoScanner.Candidate]?
@@ -190,7 +193,7 @@ struct RepositoryDetailView: View {
     private var selectedTarget: Target? {
         targets.first { $0.relativePath == selectedTargetPath } ?? targets.first
     }
-    private var diffCount: Int { diffs.reduce(0) { $0 + $1.count } }
+    private var diffCount: Int { diffs.reduce(0) { $0 + $1.count } + drifts.count }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -231,9 +234,19 @@ struct RepositoryDetailView: View {
                 }
             }
         }
+        .sheet(isPresented: .constant(driftImportPlan != nil), onDismiss: {
+            driftImportPlan = nil
+            refreshDiffs()
+        }) {
+            if let plan = driftImportPlan {
+                ImportSheet(items: plan.items, warnings: plan.warnings,
+                            target: plan.target, environmentName: environmentName)
+            }
+        }
         .sheet(isPresented: .constant(generatePlans != nil), onDismiss: {
             generatePlans = nil
             refreshHealth()
+            refreshDiffs()   // Generate 후 drift 기준점 갱신 반영 (§3.18)
         }) {
             if let plans = generatePlans, let rootURL = generateRootURL {
                 GenerateSheet(repo: repo, plans: plans, rootURL: rootURL, environmentName: environmentName)
@@ -273,6 +286,7 @@ struct RepositoryDetailView: View {
             HealthView(
                 items: healthItems,
                 safetyReports: safetyReports,
+                hookInstalled: hookInstalled,
                 onSelectMissingKey: { targetPath, environment, key in
                     // 누락 키 클릭 → 해당 Variable 입력으로 이동 (§3.8 수용 기준)
                     selectedTargetPath = targetPath
@@ -290,12 +304,44 @@ struct RepositoryDetailView: View {
                     let outputURL = rootURL.appendingPathComponent(report.outputRelativePath)
                     try? GitSafetyService.fixPermissions(outputURL: outputURL, rootURL: rootURL)
                     refreshHealth()
-                }
+                },
+                onInstallHook: { installOrRemoveHook(install: true) },
+                onRemoveHook: { installOrRemoveHook(install: false) }
             )
         case .gitChanges:
-            GitChangesView(diffs: diffs, environmentNames: environmentNames,
-                           onChanged: { refreshDiffs(); refreshHealth() })
+            GitChangesView(
+                diffs: diffs, drifts: drifts, environmentNames: environmentNames,
+                onChanged: { refreshDiffs(); refreshHealth() },
+                onImportDrift: { drift in
+                    // §3.18 가져오기 — 현재 파일을 기준점으로 인정하고 §3.12 임포트 플로우
+                    guard let content = drift.fileContent else { return }
+                    drift.target.outputHash = GenerateService.sha256(content)
+                    try? context.save()
+                    let plan = ImportService.plan(content: content, target: drift.target,
+                                                  environmentName: environmentName)
+                    driftImportPlan = (plan.items, plan.warnings, drift.target)
+                    refreshDiffs()
+                },
+                onOverwriteDrift: { _ in prepareGenerate() },  // §3.4 재생성 플로우 재사용
+                onIgnoreDrift: { drift in
+                    drift.target.outputHash = drift.fileContent.map { GenerateService.sha256($0) }
+                    try? context.save()
+                    refreshDiffs()
+                }
+            )
         }
+    }
+
+    /// §3.19 — pre-commit hook 설치/제거.
+    private func installOrRemoveHook(install: Bool) {
+        guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
+        do {
+            if install { try GitSafetyService.installHook(rootURL: rootURL) }
+            else { try GitSafetyService.removeHook(rootURL: rootURL) }
+        } catch {
+            generateError = error.localizedDescription
+        }
+        refreshHealth()
     }
 
     private func prepareGenerate() {
@@ -310,12 +356,16 @@ struct RepositoryDetailView: View {
     private func refreshDiffs() {
         guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
         diffs = ExampleDiffService.scan(repo: repo, rootURL: rootURL, context: context)
+        drifts = GenerateService.checkDrift(repo: repo, rootURL: rootURL)  // §3.18 — §3.6과 동일 시점
     }
 
     private func refreshHealth() {
         guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
         healthItems = HealthService.check(repo: repo, rootURL: rootURL, environmentNames: environmentNames)
         safetyReports = GitSafetyService.check(repo: repo, rootURL: rootURL)
+        hookInstalled = GitInfo.gitDirectory(of: rootURL) != nil
+            ? GitSafetyService.isHookInstalled(rootURL: rootURL)
+            : nil
     }
 
     /// Monorepo 스캔: 기존 Target을 제외한 신규 후보만 시트로 제안 (§3.5).

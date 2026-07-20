@@ -78,6 +78,100 @@ enum GitSafetyService {
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: outputURL.path)
     }
 
+    // MARK: - pre-commit hook (§3.19)
+
+    static let hookBeginMarker = "# envide-guard begin"
+    static let hookEndMarker = "# envide-guard end"
+
+    /// 스테이징된 .env / .env.* (example 제외) 파일이 있으면 커밋 차단.
+    static let hookBlock = """
+        \(hookBeginMarker)
+        # Env IDE가 설치한 .env 커밋 차단 블록 — 제거는 앱의 Health 탭에서.
+        envide_blocked=$(git diff --cached --name-only | grep -E '(^|/)\\.env(\\..+)?$' | grep -vE '\\.example$' || true)
+        if [ -n "$envide_blocked" ]; then
+          echo "envide: .env 파일은 커밋할 수 없습니다:" >&2
+          echo "$envide_blocked" >&2
+          exit 1
+        fi
+        \(hookEndMarker)
+        """
+
+    /// core.hooksPath(husky 등)를 반영한 pre-commit 경로. Git 저장소가 아니면 nil.
+    static func preCommitHookURL(rootURL: URL) -> URL? {
+        guard let gitDir = GitInfo.gitDirectory(of: rootURL) else { return nil }
+        var hooksDir = gitDir.appendingPathComponent("hooks")
+        if let config = try? String(contentsOf: gitDir.appendingPathComponent("config"), encoding: .utf8),
+           let path = parseHooksPath(config) {
+            hooksDir = path.hasPrefix("/")
+                ? URL(fileURLWithPath: path)
+                : rootURL.appendingPathComponent(path).standardizedFileURL
+        }
+        return hooksDir.appendingPathComponent("pre-commit")
+    }
+
+    private static func parseHooksPath(_ config: String) -> String? {
+        var inCore = false
+        for rawLine in config.split(separator: "\n") {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") {
+                inCore = line == "[core]"
+            } else if inCore, line.lowercased().hasPrefix("hookspath"),
+                      let eq = line.firstIndex(of: "=") {
+                return String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return nil
+    }
+
+    /// 기존 hook 내용에 guard 블록 삽입. 이미 마커가 있으면 블록만 교체, 없으면 끝에 append (§3.19).
+    static func insertingHookBlock(into existing: String?) -> String {
+        guard var content = existing, !content.isEmpty else {
+            return "#!/bin/sh\n\n" + hookBlock + "\n"
+        }
+        if let stripped = removingHookBlock(from: content) { content = stripped }
+        if !content.hasSuffix("\n") { content += "\n" }
+        return content + "\n" + hookBlock + "\n"
+    }
+
+    /// 마커 블록만 제거하고 나머지 내용 보존. 블록이 없으면 nil.
+    static func removingHookBlock(from content: String) -> String? {
+        guard let begin = content.range(of: hookBeginMarker),
+              let end = content.range(of: hookEndMarker) else { return nil }
+        var head = String(content[..<begin.lowerBound])
+        let tail = String(content[end.upperBound...]).drop(while: { $0 == "\n" })
+        while head.hasSuffix("\n\n") { head.removeLast() }
+        return head + tail
+    }
+
+    static func isHookInstalled(rootURL: URL) -> Bool {
+        let hasAccess = rootURL.startAccessingSecurityScopedResource()
+        defer { if hasAccess { rootURL.stopAccessingSecurityScopedResource() } }
+        guard let url = preCommitHookURL(rootURL: rootURL),
+              let content = try? String(contentsOf: url, encoding: .utf8) else { return false }
+        return content.contains(hookBeginMarker)
+    }
+
+    static func installHook(rootURL: URL) throws {
+        let hasAccess = rootURL.startAccessingSecurityScopedResource()
+        defer { if hasAccess { rootURL.stopAccessingSecurityScopedResource() } }
+        guard let url = preCommitHookURL(rootURL: rootURL) else { return }
+        let fm = FileManager.default
+        try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let existing = try? String(contentsOf: url, encoding: .utf8)
+        try insertingHookBlock(into: existing).write(to: url, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    static func removeHook(rootURL: URL) throws {
+        let hasAccess = rootURL.startAccessingSecurityScopedResource()
+        defer { if hasAccess { rootURL.stopAccessingSecurityScopedResource() } }
+        guard let url = preCommitHookURL(rootURL: rootURL),
+              let content = try? String(contentsOf: url, encoding: .utf8),
+              let stripped = removingHookBlock(from: content) else { return }
+        try stripped.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
     // MARK: - 간이 gitignore 매칭
 
     static func gitignorePatterns(at dir: URL) -> [String] {

@@ -86,6 +86,37 @@ enum ExampleDiffService {
         try context.save()
     }
 
+    // MARK: - example 역생성 (§3.17)
+
+    /// Variables로부터 example 내용 생성 — 전 Environment 합집합 키(무시 키 제외), 값은 빈 문자열,
+    /// note가 있으면 위 줄에 주석. 키 정렬·`KEY=` 형식은 §3.2 직렬화와 동일.
+    static func exampleContent(for target: Target) -> String {
+        let variables = (target.variables ?? []).filter { !$0.isIgnored }
+        var noteByKey: [String: String] = [:]
+        for variable in variables where noteByKey[variable.key] == nil {
+            if let note = variable.note, !note.isEmpty { noteByKey[variable.key] = note }
+        }
+        var lines: [String] = []
+        for key in Set(variables.map(\.key)).sorted() {
+            if let note = noteByKey[key] { lines.append("# \(note)") }
+            lines.append("\(key)=")
+        }
+        lines.append("")
+        return lines.joined(separator: "\n")
+    }
+
+    /// example 파일 쓰기 + 스냅샷 갱신 — 자기 변경이 §3.6 diff로 뜨지 않도록.
+    static func writeExample(content: String, target: Target, rootURL: URL) throws {
+        let hasAccess = rootURL.startAccessingSecurityScopedResource()
+        defer { if hasAccess { rootURL.stopAccessingSecurityScopedResource() } }
+        let dir = target.relativePath == "."
+            ? rootURL
+            : rootURL.appendingPathComponent(target.relativePath)
+        try content.write(to: dir.appendingPathComponent(target.examplePath),
+                          atomically: true, encoding: .utf8)
+        target.exampleSnapshot = content
+    }
+
     // 처리된 키는 스냅샷에 반영해 같은 diff가 다시 나타나지 않게 한다 (§3.7 수용 기준).
     private static func appendToSnapshot(key: String, target: Target) {
         target.exampleSnapshot = (target.exampleSnapshot ?? "") + "\n\(key)="

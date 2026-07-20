@@ -1,24 +1,29 @@
 import SwiftUI
 import SwiftData
 
-/// .env.example diff 처리 탭 (PRD §3.7) — 키별 추가/삭제/무시.
+/// .env.example diff 처리 탭 (PRD §3.7) — 키별 추가/삭제/무시. + Output Drift (§3.18).
 struct GitChangesView: View {
     let diffs: [ExampleDiffService.Diff]
+    let drifts: [GenerateService.Drift]
     let environmentNames: [String]
     let onChanged: () -> Void
+    let onImportDrift: (GenerateService.Drift) -> Void
+    let onOverwriteDrift: (GenerateService.Drift) -> Void
+    let onIgnoreDrift: (GenerateService.Drift) -> Void
     @Environment(\.modelContext) private var context
     @State private var errorMessage: String?
 
     var body: some View {
         Group {
-            if diffs.isEmpty {
+            if diffs.isEmpty && drifts.isEmpty {
                 ContentUnavailableView(
                     "변경 없음 ✓",
                     systemImage: "checkmark.circle",
-                    description: Text(".env.example이 마지막 확인 시점과 일치합니다")
+                    description: Text(".env.example과 출력 파일이 마지막 확인 시점과 일치합니다")
                 )
             } else {
                 List {
+                    driftSection
                     ForEach(diffs) { diff in
                         Section(diff.target.relativePath) {
                             ForEach(diff.addedKeys, id: \.self) { key in
@@ -57,6 +62,40 @@ struct GitChangesView: View {
             Button("확인") { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "")
+        }
+    }
+
+    /// §3.18 — 외부에서 수정된 출력 파일: 가져오기 / 덮어쓰기 / 무시. 삭제된 파일은 덮어쓰기만.
+    @ViewBuilder private var driftSection: some View {
+        if !drifts.isEmpty {
+            Section("외부에서 수정됨") {
+                ForEach(drifts) { drift in
+                    HStack {
+                        Image(systemName: "pencil.line").foregroundStyle(.orange)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(drift.outputURL.lastPathComponent).fontDesign(.monospaced)
+                            Text(drift.fileExists
+                                 ? "\(drift.target.relativePath) — Generate 이후 파일이 앱 밖에서 수정되었습니다"
+                                 : "\(drift.target.relativePath) — 파일이 삭제되었습니다")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if drift.fileExists {
+                            Button("가져오기") { onImportDrift(drift) }
+                                .buttonStyle(.bordered).controlSize(.small)
+                                .help("파일 내용을 앱으로 가져오기 (§3.12)")
+                            Button("무시") { onIgnoreDrift(drift) }
+                                .buttonStyle(.bordered).controlSize(.small)
+                                .help("현재 파일 내용을 새 기준점으로 인정")
+                        }
+                        Button("덮어쓰기") { onOverwriteDrift(drift) }
+                            .buttonStyle(.bordered).controlSize(.small)
+                            .help("앱 데이터로 재생성 (§3.4)")
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
         }
     }
 

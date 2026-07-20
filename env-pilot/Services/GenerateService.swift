@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import CryptoKit
 
 /// .env 파일 생성 (PRD §3.4). 플랜 계산 → (UI 확인) → 실행 2단계.
 enum GenerateService {
@@ -76,6 +77,50 @@ enum GenerateService {
             }
         }
         return errors
+    }
+
+    // MARK: - Output Drift (§3.18)
+
+    static func sha256(_ content: String) -> String {
+        SHA256.hash(data: Data(content.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Generate 성공 후 호출 — 출력 해시를 Target에 기록해 drift 기준점으로 삼는다.
+    /// unchanged도 포함: 파일 내용이 곧 생성 결과이므로 기준점 갱신이 맞다.
+    static func recordOutputHashes(plans: [Plan], repo: Repository) {
+        let targetsByPath = Dictionary((repo.targets ?? []).map { ($0.relativePath, $0) },
+                                       uniquingKeysWith: { a, _ in a })
+        for plan in plans where [.create, .overwrite, .unchanged].contains(plan.action) {
+            targetsByPath[plan.targetPath]?.outputHash = sha256(plan.content)
+        }
+    }
+
+    struct Drift: Identifiable {
+        let target: Target
+        let outputURL: URL
+        let fileExists: Bool          // false = 삭제됨 → "덮어쓰기"만 제안 (§3.18 엣지)
+        let fileContent: String?
+        var id: String { target.relativePath }
+    }
+
+    /// outputHash와 현재 파일 해시 비교. Generate한 적 없는 Target(`outputHash == nil`)은 제외.
+    static func checkDrift(repo: Repository, rootURL: URL) -> [Drift] {
+        let hasAccess = rootURL.startAccessingSecurityScopedResource()
+        defer { if hasAccess { rootURL.stopAccessingSecurityScopedResource() } }
+
+        var drifts: [Drift] = []
+        for target in (repo.targets ?? []).sorted(by: { $0.relativePath < $1.relativePath }) {
+            guard let hash = target.outputHash else { continue }
+            let dir = target.relativePath == "."
+                ? rootURL
+                : rootURL.appendingPathComponent(target.relativePath)
+            let outputURL = dir.appendingPathComponent(target.outputPath)
+            let content = try? String(contentsOf: outputURL, encoding: .utf8)
+            if let content, sha256(content) == hash { continue }
+            drifts.append(Drift(target: target, outputURL: outputURL,
+                                fileExists: content != nil, fileContent: content))
+        }
+        return drifts
     }
 
     /// 덮어쓰기 확인용 단순 라인 diff (§3.4 미리보기).

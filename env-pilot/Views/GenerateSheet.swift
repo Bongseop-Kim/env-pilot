@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 /// Generate 확인 시트 (PRD §3.4) — 플랜과 덮어쓰기 diff 미리보기를 보여주고 실행.
 /// 실행 후 Git Safety 검사 (§3.4 5단계, §3.11).
@@ -7,6 +8,7 @@ struct GenerateSheet: View {
     let plans: [GenerateService.Plan]
     let rootURL: URL
     let environmentName: String
+    @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var errors: [String] = []
     @State private var safetyIssues: [GitSafetyService.Report]?
@@ -55,6 +57,10 @@ struct GenerateSheet: View {
     private func run() {
         errors = GenerateService.execute(plans, rootURL: rootURL)
         guard errors.isEmpty else { return }
+
+        // §3.18 — 출력 해시를 drift 기준점으로 기록
+        GenerateService.recordOutputHashes(plans: plans, repo: repo)
+        try? context.save()
 
         // 생성 직후 Git Safety — 출력 파일이 커밋될 위험이 있으면 경고 (§3.4)
         let written = Set(plans.filter { $0.action == .create || $0.action == .overwrite }.map(\.targetPath))
