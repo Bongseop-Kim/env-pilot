@@ -56,16 +56,25 @@ struct HealthView: View {
 
     @ViewBuilder private var healthSections: some View {
         let grouped = Dictionary(grouping: items, by: \.targetPath)
-        ForEach(grouped.keys.sorted(), id: \.self) { targetPath in
-            Section(targetPath) {
-                ForEach(grouped[targetPath] ?? []) { item in
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(item.status.symbol)
-                        Text(item.environmentName).frame(width: 110, alignment: .leading)
-                        keyChips(item)
-                        Spacer()
-                    }
+        let targetPaths = grouped.keys.sorted()
+        ForEach(targetPaths, id: \.self) { targetPath in
+            if targetPaths.count == 1 {
+                healthRows(grouped[targetPath] ?? [])
+            } else {
+                Section(targetPath == "." ? "Root" : targetPath) {
+                    healthRows(grouped[targetPath] ?? [])
                 }
+            }
+        }
+    }
+
+    @ViewBuilder private func healthRows(_ items: [HealthService.Item]) -> some View {
+        ForEach(items) { item in
+            HStack(alignment: .top) {
+                Text(item.status.symbol)
+                Text(item.environmentName).frame(width: 110, alignment: .leading)
+                keyChips(item)
+                Spacer()
             }
         }
     }

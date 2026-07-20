@@ -201,6 +201,7 @@ struct RepositoryDetailView: View {
             Divider()
             tabContent
         }
+        .frame(maxHeight: .infinity, alignment: .top)
         .navigationTitle(repo.name)
         .navigationSubtitle("\(selectedTargetPath) · \(environmentName)")
         .toolbar {
