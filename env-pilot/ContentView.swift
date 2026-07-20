@@ -7,14 +7,20 @@ import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
 
+enum SidebarItem: Hashable {
+    case repository(PersistentIdentifier)
+    case history
+}
+
 struct ContentView: View {
     @Environment(\.modelContext) private var context
     @Query private var workspaces: [Workspace]
     @Query(sort: \Repository.createdAt) private var repositories: [Repository]
     @AppStorage("selectedEnvironment") private var selectedEnvironment = "Local"
-    @State private var selection: Repository?
+    @State private var selection: SidebarItem?
     @State private var showImporter = false
     @State private var errorMessage: String?
+    @State private var healthByRepo: [String: HealthStatus] = [:]
 
     private var environmentNames: [String] {
         (workspaces.first?.environments ?? [])
@@ -22,14 +28,33 @@ struct ContentView: View {
             .map(\.name)
     }
 
+    private var selectedRepository: Repository? {
+        guard case .repository(let id) = selection else { return nil }
+        return repositories.first { $0.persistentModelID == id }
+    }
+
     var body: some View {
         NavigationSplitView {
-            List(repositories, selection: $selection) { repo in
-                Label(repo.name, systemImage: "folder")
-                    .tag(repo)
-                    .contextMenu {
-                        Button("삭제", role: .destructive) { deleteRepo(repo) }
+            List(selection: $selection) {
+                Section("Repositories") {
+                    ForEach(repositories) { repo in
+                        HStack {
+                            Label(repo.name, systemImage: "folder")
+                            Spacer()
+                            if let status = healthByRepo[repo.uuid], status != .healthy {
+                                Text(status.symbol).font(.caption2)
+                            }
+                        }
+                        .tag(SidebarItem.repository(repo.persistentModelID))
+                        .contextMenu {
+                            Button("삭제", role: .destructive) { deleteRepo(repo) }
+                        }
                     }
+                }
+                Section {
+                    Label("History", systemImage: "clock")
+                        .tag(SidebarItem.history)
+                }
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 220)
             .toolbar {
@@ -45,12 +70,19 @@ struct ContentView: View {
                 }
             }
         } detail: {
-            if let repo = selection {
-                RepositoryDetailView(repo: repo, environmentName: selectedEnvironment)
-                    .id(repo.persistentModelID)  // repo 전환 시 상태 초기화
-            } else {
-                Text("Repository를 선택하세요")
-                    .foregroundStyle(.secondary)
+            switch selection {
+            case .repository:
+                if let repo = selectedRepository {
+                    RepositoryDetailView(repo: repo, environmentName: selectedEnvironment,
+                                         environmentNames: environmentNames)
+                        .id(repo.persistentModelID)
+                } else {
+                    placeholder
+                }
+            case .history:
+                HistoryView()
+            case nil:
+                placeholder
             }
         }
         .toolbar {
@@ -66,7 +98,8 @@ struct ContentView: View {
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.folder]) { result in
             guard case .success(let url) = result, let workspace = workspaces.first else { return }
             do {
-                selection = try RepositoryService.register(folderURL: url, workspace: workspace, context: context)
+                let repo = try RepositoryService.register(folderURL: url, workspace: workspace, context: context)
+                selection = .repository(repo.persistentModelID)
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -76,10 +109,28 @@ struct ContentView: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .task { refreshSidebarHealth() }
+        .onReceive(NotificationCenter.default.publisher(
+            for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshSidebarHealth()
+        }
+    }
+
+    private var placeholder: some View {
+        Text("Repository를 선택하세요").foregroundStyle(.secondary)
+    }
+
+    /// 사이드바 Health 뱃지 (§3.8: Repository 상태 = 최악 값).
+    private func refreshSidebarHealth() {
+        for repo in repositories {
+            guard let rootURL = RepositoryService.resolveBookmark(repo) else { continue }
+            healthByRepo[repo.uuid] = HealthService.overall(
+                HealthService.check(repo: repo, rootURL: rootURL, environmentNames: environmentNames))
+        }
     }
 
     private func deleteRepo(_ repo: Repository) {
-        if selection == repo { selection = nil }
+        if selection == .repository(repo.persistentModelID) { selection = nil }
         context.delete(repo)
         try? context.save()
     }
@@ -88,7 +139,9 @@ struct ContentView: View {
 struct RepositoryDetailView: View {
     let repo: Repository
     let environmentName: String
+    let environmentNames: [String]
     @Environment(\.modelContext) private var context
+    @AppStorage("selectedEnvironment") private var selectedEnvironment = "Local"
     @State private var selectedTargetPath: String = "."
     @State private var showRelinker = false
     @State private var generatePlans: [GenerateService.Plan]?
@@ -96,17 +149,17 @@ struct RepositoryDetailView: View {
     @State private var generateError: String?
     @State private var tab: DetailTab = .variables
     @State private var diffs: [ExampleDiffService.Diff] = []
+    @State private var healthItems: [HealthService.Item] = []
+    @State private var safetyReports: [GitSafetyService.Report] = []
     @State private var scanCandidates: [MonorepoScanner.Candidate]?
+    @State private var pendingAddKey: String?
 
-    enum DetailTab { case variables, gitChanges }
+    enum DetailTab { case variables, compare, health, gitChanges }
 
     private var isLinked: Bool { RepositoryService.resolveBookmark(repo) != nil }
     private var targets: [Target] { (repo.targets ?? []).sorted { $0.relativePath < $1.relativePath } }
     private var selectedTarget: Target? {
         targets.first { $0.relativePath == selectedTargetPath } ?? targets.first
-    }
-    private var environmentNames: [String] {
-        (repo.workspace?.environments ?? []).sorted { $0.sortOrder < $1.sortOrder }.map(\.name)
     }
     private var diffCount: Int { diffs.reduce(0) { $0 + $1.count } }
 
@@ -114,19 +167,7 @@ struct RepositoryDetailView: View {
         VStack(spacing: 0) {
             header
             Divider()
-            switch tab {
-            case .variables:
-                if let target = selectedTarget {
-                    VariablesView(target: target, environmentName: environmentName)
-                        .id("\(target.persistentModelID)-\(environmentName)")
-                } else {
-                    Text("Target이 없습니다").foregroundStyle(.secondary)
-                        .frame(maxHeight: .infinity)
-                }
-            case .gitChanges:
-                GitChangesView(diffs: diffs, environmentNames: environmentNames,
-                               onChanged: refreshDiffs)
-            }
+            tabContent
         }
         .navigationTitle(repo.name)
         .navigationSubtitle("\(selectedTargetPath) · \(environmentName)")
@@ -138,11 +179,13 @@ struct RepositoryDetailView: View {
         }
         .task(id: repo.uuid) {
             refreshDiffs()
+            refreshHealth()
             autoScanIfFirstVisit()
         }
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshDiffs()   // git pull 후 앱 전환 시 감지 (§3.6)
+            refreshHealth()
         }
         .sheet(isPresented: .constant(scanCandidates != nil), onDismiss: { scanCandidates = nil }) {
             if let candidates = scanCandidates {
@@ -152,12 +195,15 @@ struct RepositoryDetailView: View {
                 }
             }
         }
-        .sheet(isPresented: .constant(generatePlans != nil), onDismiss: { generatePlans = nil }) {
+        .sheet(isPresented: .constant(generatePlans != nil), onDismiss: {
+            generatePlans = nil
+            refreshHealth()
+        }) {
             if let plans = generatePlans, let rootURL = generateRootURL {
-                GenerateSheet(plans: plans, rootURL: rootURL, environmentName: environmentName)
+                GenerateSheet(repo: repo, plans: plans, rootURL: rootURL, environmentName: environmentName)
             }
         }
-        .alert("Generate 불가", isPresented: .constant(generateError != nil)) {
+        .alert("오류", isPresented: .constant(generateError != nil)) {
             Button("확인") { generateError = nil }
         } message: {
             Text(generateError ?? "")
@@ -165,6 +211,54 @@ struct RepositoryDetailView: View {
         .fileImporter(isPresented: $showRelinker, allowedContentTypes: [.folder]) { result in
             guard case .success(let url) = result else { return }
             try? RepositoryService.relink(repo: repo, folderURL: url, context: context)
+        }
+    }
+
+    @ViewBuilder private var tabContent: some View {
+        switch tab {
+        case .variables:
+            if let target = selectedTarget {
+                VariablesView(target: target, environmentName: environmentName,
+                              pendingAddKey: $pendingAddKey)
+                    .id("\(target.persistentModelID)-\(environmentName)")
+            } else {
+                Text("Target이 없습니다").foregroundStyle(.secondary)
+                    .frame(maxHeight: .infinity)
+            }
+        case .compare:
+            if let target = selectedTarget {
+                CompareView(target: target, environmentNames: environmentNames)
+                    .id(target.persistentModelID)
+            } else {
+                Text("Target이 없습니다").foregroundStyle(.secondary)
+                    .frame(maxHeight: .infinity)
+            }
+        case .health:
+            HealthView(
+                items: healthItems,
+                safetyReports: safetyReports,
+                onSelectMissingKey: { targetPath, environment, key in
+                    // 누락 키 클릭 → 해당 Variable 입력으로 이동 (§3.8 수용 기준)
+                    selectedTargetPath = targetPath
+                    selectedEnvironment = environment
+                    tab = .variables
+                    pendingAddKey = key
+                },
+                onAddToGitignore: { fileName in
+                    guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
+                    try? GitSafetyService.addToGitignore(line: fileName, rootURL: rootURL)
+                    refreshHealth()
+                },
+                onFixPermissions: { report in
+                    guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
+                    let outputURL = rootURL.appendingPathComponent(report.outputRelativePath)
+                    try? GitSafetyService.fixPermissions(outputURL: outputURL, rootURL: rootURL)
+                    refreshHealth()
+                }
+            )
+        case .gitChanges:
+            GitChangesView(diffs: diffs, environmentNames: environmentNames,
+                           onChanged: { refreshDiffs(); refreshHealth() })
         }
     }
 
@@ -180,6 +274,12 @@ struct RepositoryDetailView: View {
     private func refreshDiffs() {
         guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
         diffs = ExampleDiffService.scan(repo: repo, rootURL: rootURL, context: context)
+    }
+
+    private func refreshHealth() {
+        guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
+        healthItems = HealthService.check(repo: repo, rootURL: rootURL, environmentNames: environmentNames)
+        safetyReports = GitSafetyService.check(repo: repo, rootURL: rootURL)
     }
 
     /// Monorepo 스캔: 기존 Target을 제외한 신규 후보만 시트로 제안 (§3.5).
@@ -218,13 +318,15 @@ struct RepositoryDetailView: View {
             HStack {
                 Picker("", selection: $tab) {
                     Text("Variables").tag(DetailTab.variables)
+                    Text("Compare").tag(DetailTab.compare)
+                    Text("Health").tag(DetailTab.health)
                     Text(diffCount > 0 ? "Git Changes (\(diffCount))" : "Git Changes")
                         .tag(DetailTab.gitChanges)
                 }
                 .pickerStyle(.segmented)
                 .fixedSize()
 
-                if tab == .variables && targets.count > 1 {
+                if (tab == .variables || tab == .compare) && targets.count > 1 {
                     Picker("Target", selection: $selectedTargetPath) {
                         ForEach(targets, id: \.relativePath) { Text($0.relativePath).tag($0.relativePath) }
                     }

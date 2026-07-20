@@ -1,14 +1,19 @@
 import SwiftUI
 import SwiftData
 import AppKit
+import UniformTypeIdentifiers
 
-/// 변수 목록/편집 (PRD §3.3). (선택된 Target, 선택된 Environment) 기준.
+/// 변수 목록/편집 (PRD §3.3) + Import 진입점 (§3.12). (선택된 Target, 선택된 Environment) 기준.
 struct VariablesView: View {
     let target: Target
     let environmentName: String
+    @Binding var pendingAddKey: String?   // Health에서 누락 키 클릭 시 프리필 (§3.8)
     @Environment(\.modelContext) private var context
     @State private var search = ""
     @State private var showAdd = false
+    @State private var addSheetKey = ""
+    @State private var showFilePicker = false
+    @State private var importPlan: (items: [ImportService.Item], warnings: [String])?
     @State private var errorMessage: String?
 
     private var variables: [Variable] {
@@ -44,21 +49,50 @@ struct VariablesView: View {
                 ContentUnavailableView(
                     search.isEmpty ? "키가 없습니다" : "검색 결과 없음",
                     systemImage: "key",
-                    description: search.isEmpty ? Text("+ 버튼으로 키를 추가하세요") : nil
+                    description: search.isEmpty ? Text("+ 로 추가하거나 기존 .env를 Import 하세요") : nil
                 )
             }
         }
         .toolbar {
-            Button("키 추가", systemImage: "plus") { showAdd = true }
+            Button("Import", systemImage: "square.and.arrow.up") { showFilePicker = true }
+                .help("기존 .env 파일 가져오기")
+            Button("키 추가", systemImage: "plus") { addSheetKey = ""; showAdd = true }
         }
         .sheet(isPresented: $showAdd) {
-            AddVariableSheet(target: target, environmentName: environmentName)
+            AddVariableSheet(target: target, environmentName: environmentName, initialKey: addSheetKey)
+        }
+        .sheet(isPresented: .constant(importPlan != nil), onDismiss: { importPlan = nil }) {
+            if let plan = importPlan {
+                ImportSheet(items: plan.items, warnings: plan.warnings,
+                            target: target, environmentName: environmentName)
+            }
+        }
+        .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.item]) { result in
+            guard case .success(let url) = result else { return }
+            importFile(url)
+        }
+        .onChange(of: pendingAddKey, initial: true) {
+            if let key = pendingAddKey {
+                addSheetKey = key
+                showAdd = true
+                pendingAddKey = nil
+            }
         }
         .alert("오류", isPresented: .constant(errorMessage != nil)) {
             Button("확인") { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "")
         }
+    }
+
+    private func importFile(_ url: URL) {
+        let hasAccess = url.startAccessingSecurityScopedResource()
+        defer { if hasAccess { url.stopAccessingSecurityScopedResource() } }
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else {
+            errorMessage = "파일을 읽을 수 없습니다: \(url.lastPathComponent)"
+            return
+        }
+        importPlan = ImportService.plan(content: content, target: target, environmentName: environmentName)
     }
 }
 
@@ -135,11 +169,17 @@ private struct AddVariableSheet: View {
     let environmentName: String
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
-    @State private var key = ""
+    @State private var key: String
     @State private var value = ""
     @State private var note = ""
     @State private var isSecret = false
     @State private var errorMessage: String?
+
+    init(target: Target, environmentName: String, initialKey: String = "") {
+        self.target = target
+        self.environmentName = environmentName
+        _key = State(initialValue: initialKey)
+    }
 
     var body: some View {
         Form {

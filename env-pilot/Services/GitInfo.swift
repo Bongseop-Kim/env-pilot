@@ -9,7 +9,7 @@ struct GitInfo {
 
     /// 폴더가 Git 저장소가 아니면 nil.
     static func read(at folderURL: URL) -> GitInfo? {
-        guard let gitDir = resolveGitDir(folderURL) else { return nil }
+        guard let gitDir = gitDirectory(of: folderURL) else { return nil }
 
         var info = GitInfo()
 
@@ -29,8 +29,8 @@ struct GitInfo {
         return info
     }
 
-    /// .git이 디렉토리면 그대로, 파일이면(worktree) "gitdir: <path>" 해석.
-    private static func resolveGitDir(_ folderURL: URL) -> URL? {
+    /// .git이 디렉토리면 그대로, 파일이면(worktree) "gitdir: <path>" 해석. Git 저장소가 아니면 nil.
+    static func gitDirectory(of folderURL: URL) -> URL? {
         let dotGit = folderURL.appendingPathComponent(".git")
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: dotGit.path, isDirectory: &isDirectory) else { return nil }
