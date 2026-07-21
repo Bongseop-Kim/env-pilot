@@ -90,7 +90,7 @@ Workspace
 - Secret 실값은 SwiftData나 CloudKit에 저장하지 않고 Keychain에 저장한다.
 - Keychain 항목은 Repository UUID, 실제 파일 scope, key를 조합해 구분한다.
 - `kSecAttrSynchronizable = true`를 사용해 iCloud Keychain으로 동기화한다.
-- Secret 표시 및 복사 시 사용자 인증을 요구할 수 있다.
+- Secret 표시, 복사 및 해제 시 사용자 인증을 요구할 수 있다.
 
 ---
 
@@ -252,7 +252,7 @@ Health는 실제 env 파일 단위로 판정한다.
 
 - Workspace 이름
 - 로그인 시 시작
-- Secret 표시·복사 인증
+- Secret 표시·복사·해제 인증
 - iCloud 동기화
 
 Environment 목록과 기본 output 경로 설정은 제공하지 않는다.

@@ -1,7 +1,7 @@
 import Foundation
 import LocalAuthentication
 
-/// Secret 표시/복사 전 사용자 인증 — 1Password식 "사용당 승인" 모델.
+/// Secret 표시/복사/해제 전 사용자 인증 — 1Password식 "사용당 승인" 모델.
 /// Touch ID 우선, 없으면 로그인 비밀번호 폴백.
 enum BiometricGate {
     static let settingKey = "requireAuthForSecrets"

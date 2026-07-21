@@ -34,7 +34,7 @@ struct SettingsView: View {
                         }
                     }
                     .onAppear { launchAtLogin = SMAppService.mainApp.status == .enabled }
-                Toggle("Secret 표시·복사 시 인증 요구", isOn: $requireAuthForSecrets)
+                Toggle("Secret 표시·복사·해제 시 인증 요구", isOn: $requireAuthForSecrets)
                 Text("Touch ID 또는 로그인 비밀번호로 승인합니다. 승인 후 60초간 재인증을 생략합니다.")
                     .font(SeedTypography.caption)
                     .foregroundStyle(SeedColor.fgNeutralMuted)

@@ -31,8 +31,7 @@ struct VariablesView: View {
                             onNotify: { snackbar = $0 })
                     .contextMenu {
                         Button(variable.isSecret ? "Secret 해제" : "Secret으로 전환") {
-                            do { try VariableService.setSecret(variable, !variable.isSecret, context: context) }
-                            catch { errorMessage = error.localizedDescription }
+                            setSecret(variable, to: !variable.isSecret)
                         }
                         Button("삭제", role: .destructive) {
                             do { try VariableService.delete(variable, context: context) }
@@ -86,6 +85,16 @@ struct VariablesView: View {
         }
         .errorAlert($errorMessage)
         .snackbar($snackbar)
+    }
+
+    private func setSecret(_ variable: Variable, to isSecret: Bool) {
+        Task {
+            if !isSecret {
+                guard await BiometricGate.authorize(reason: "\(variable.key) Secret을 해제") else { return }
+            }
+            do { try VariableService.setSecret(variable, isSecret, context: context) }
+            catch { errorMessage = error.localizedDescription }
+        }
     }
 
     /// §3.20 — 현재 env 파일 전체를 지정 포맷으로 복사. Secret 포함 시 §3.16 자동 삭제.
