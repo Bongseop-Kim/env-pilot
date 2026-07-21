@@ -10,6 +10,7 @@ struct CredentialsView: View {
     @State private var search = ""
     @State private var showAdd = false
     @State private var errorMessage: String?
+    @State private var snackbar: SeedSnackbarMessage?
 
     private var credentials: [Credential] {
         (repo.credentials ?? [])
@@ -25,7 +26,8 @@ struct CredentialsView: View {
     var body: some View {
         List {
             ForEach(credentials) { credential in
-                CredentialRow(credential: credential, onError: { errorMessage = $0 })
+                CredentialRow(credential: credential, onError: { errorMessage = $0 },
+                              onNotify: { snackbar = $0 })
                     .contextMenu {
                         Button("삭제", role: .destructive) {
                             do { try CredentialService.delete(credential, context: context) }
@@ -53,6 +55,7 @@ struct CredentialsView: View {
             AddCredentialSheet(repo: repo)
         }
         .errorAlert($errorMessage)
+        .snackbar($snackbar)
     }
 }
 
@@ -60,10 +63,10 @@ struct CredentialsView: View {
 private struct CredentialRow: View {
     let credential: Credential
     let onError: (String) -> Void
+    let onNotify: (SeedSnackbarMessage) -> Void
     @Environment(\.modelContext) private var context
     @State private var passwordText = ""
     @State private var revealed = false
-    @State private var showClipboardNote = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -79,9 +82,10 @@ private struct CredentialRow: View {
                 Text(credential.username).fontDesign(.monospaced).textSelection(.enabled)
                 Button("아이디 복사", systemImage: "doc.on.doc") {
                     ClipboardService.copy(credential.username, clearAfterDelay: false)
+                    onNotify(SeedSnackbarMessage("아이디 복사됨", tone: .positive))
                 }
                 .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
+                .buttonStyle(.seedIcon())
             }
             .frame(width: 220, alignment: .leading)
 
@@ -98,29 +102,23 @@ private struct CredentialRow: View {
                     .help("클릭하여 표시")
             }
 
-            if showClipboardNote {
-                Text("30초 후 클립보드에서 삭제됨")
-                    .font(.caption)
-                    .foregroundStyle(SeedColor.fgNeutralMuted)
-            }
             if let url = CredentialService.openableURL(credential.urlString) {
                 Button("열기", systemImage: "arrow.up.right.square") {
                     NSWorkspace.shared.open(url)  // 웹 주소와 앱 스키마 모두 처리
                 }
                 .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
+                .buttonStyle(.seedIcon())
                 .help(credential.urlString ?? "")
             }
             Button("비밀번호 복사", systemImage: "doc.on.doc") {
                 Task {
                     guard await BiometricGate.authorize(reason: "\(credential.label) 비밀번호를 복사") else { return }
                     ClipboardService.copy(CredentialService.password(of: credential), clearAfterDelay: true)
-                    showClipboardNote = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { showClipboardNote = false }
+                    onNotify(SeedSnackbarMessage("비밀번호 복사됨 — 30초 후 클립보드에서 삭제", tone: .positive))
                 }
             }
             .labelStyle(.iconOnly)
-            .buttonStyle(.borderless)
+            .buttonStyle(.seedIcon())
             .help("비밀번호 복사")
         }
         .seedListRow()
@@ -152,33 +150,45 @@ private struct AddCredentialSheet: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        Form {
-            Section("새 계정 — \(repo.name)") {
-                TextField("이름 (예: Staging 관리자)", text: $label)
-                TextField("아이디 / 이메일", text: $username)
+        VStack(alignment: .leading, spacing: SeedSpacing.x5) {
+            Text("새 계정 — \(repo.name)")
+                .font(SeedFont.t6(.bold))
+                .foregroundStyle(SeedColor.fgNeutral)
+            SeedField("이름") {
+                SeedTextField("예: Staging 관리자", text: $label)
+            }
+            SeedField("아이디 / 이메일") {
+                SeedTextField("", text: $username)
                     .fontDesign(.monospaced)
                     .autocorrectionDisabled()
-                SecureField("비밀번호 (Keychain에 저장)", text: $password)
-                TextField("주소 — 웹 URL 또는 앱 스키마 (선택)", text: $urlString)
+            }
+            SeedField("비밀번호", description: "Keychain에 저장됩니다") {
+                SeedTextField("", text: $password, secure: true)
+            }
+            SeedField("주소 (선택)", description: "웹 URL 또는 앱 스키마") {
+                SeedTextField("", text: $urlString)
                     .fontDesign(.monospaced)
                     .autocorrectionDisabled()
-                TextField("설명 (선택)", text: $note)
+            }
+            SeedField("설명 (선택)") {
+                SeedTextField("", text: $note)
             }
             if let errorMessage {
                 SeedCallout(errorMessage, tone: .critical)
             }
-        }
-        .formStyle(.grouped)
-        .frame(width: 420)
-        .padding(.bottom)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
+            HStack {
+                Spacer()
                 Button("취소") { dismiss() }
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button("추가", action: add).disabled(label.isEmpty)
+                    .buttonStyle(.seed(.neutralWeak, size: .small))
+                    .keyboardShortcut(.cancelAction)
+                Button("추가", action: add)
+                    .buttonStyle(.seed(.brandSolid, size: .small))
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(label.isEmpty)
             }
         }
+        .padding(SeedSpacing.x5)
+        .frame(width: 420)
     }
 
     private func add() {

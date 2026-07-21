@@ -38,11 +38,12 @@ struct ExportSheet: View {
             Text("Export — .envide 번들")
                 .font(.headline)
 
-            Picker("범위", selection: $wholeWorkspace) {
-                Text(repo.name).tag(false)
-                Text("전체 Workspace").tag(true)
+            VStack(spacing: SeedSpacing.x2) {
+                SeedSelectBox(repo.name, description: "이 Repository만 내보냅니다",
+                              isSelected: !wholeWorkspace) { wholeWorkspace = false }
+                SeedSelectBox("전체 Workspace", description: "모든 Repository를 내보냅니다",
+                              isSelected: wholeWorkspace) { wholeWorkspace = true }
             }
-            .pickerStyle(.radioGroup)
 
             Toggle("Secret 실값 포함", isOn: $includeSecrets)
                 .toggleStyle(.seed)

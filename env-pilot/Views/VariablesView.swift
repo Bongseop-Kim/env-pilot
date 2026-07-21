@@ -13,6 +13,7 @@ struct VariablesView: View {
     @State private var addSheetKey = ""
     @State private var importPlan: (items: [ImportService.Item], warnings: [String])?
     @State private var errorMessage: String?
+    @State private var snackbar: SeedSnackbarMessage?
     @State private var pendingExampleContent: String?   // §3.17 덮어쓰기 확인 대기 중인 내용
 
     private var variables: [Variable] {
@@ -29,7 +30,8 @@ struct VariablesView: View {
     var body: some View {
         List {
             ForEach(variables) { variable in
-                VariableRow(variable: variable, onError: { errorMessage = $0 })
+                VariableRow(variable: variable, onError: { errorMessage = $0 },
+                            onNotify: { snackbar = $0 })
                     .contextMenu {
                         Button(variable.isSecret ? "Secret 해제" : "Secret으로 전환") {
                             do { try VariableService.setSecret(variable, !variable.isSecret, context: context) }
@@ -99,6 +101,7 @@ struct VariablesView: View {
             }
         }
         .errorAlert($errorMessage)
+        .snackbar($snackbar)
     }
 
     /// §3.20 — 현재 Target × Environment 전체를 지정 포맷으로 복사. Secret 포함 시 §3.16 자동 삭제.
@@ -112,6 +115,9 @@ struct VariablesView: View {
             }
             let values = Dictionary(uniqueKeysWithValues: all.map { ($0.key, VariableService.value(of: $0)) })
             ClipboardService.copy(format.render(values), clearAfterDelay: hasSecret)
+            snackbar = SeedSnackbarMessage(
+                hasSecret ? "\(format.rawValue) 복사됨 — 30초 후 클립보드에서 삭제" : "\(format.rawValue) 복사됨",
+                tone: .positive)
         }
     }
 
@@ -177,6 +183,7 @@ struct VariablesView: View {
 private struct VariableRow: View {
     let variable: Variable
     let onError: (String) -> Void
+    let onNotify: (SeedSnackbarMessage) -> Void
     @Environment(\.modelContext) private var context
     @State private var valueText = ""
     @State private var noteText = ""
@@ -184,7 +191,6 @@ private struct VariableRow: View {
     @State private var committedNote = ""
     @State private var revealed = false
     @State private var savedFlash = false    // 저장 직후 체크마크
-    @State private var copied = false        // 복사 직후 체크마크
     @FocusState private var focusedField: Field?
 
     private enum Field { case value, note }
@@ -227,7 +233,7 @@ private struct VariableRow: View {
                 .opacity(savedFlash ? 1 : 0)
                 .accessibilityLabel(savedFlash ? "저장됨" : "")
 
-            Button("복사", systemImage: copied ? "checkmark" : "doc.on.doc") {
+            Button("복사", systemImage: "doc.on.doc") {
                 Task {
                     if variable.isSecret {
                         guard await BiometricGate.authorize(reason: "\(variable.key) 값을 복사") else { return }
@@ -235,13 +241,13 @@ private struct VariableRow: View {
                     // Secret만 30초 후 자동 삭제 대상 (§3.16)
                     ClipboardService.copy(VariableService.value(of: variable),
                                           clearAfterDelay: variable.isSecret)
-                    copied = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { copied = false }
+                    onNotify(SeedSnackbarMessage(
+                        variable.isSecret ? "복사됨 — 30초 후 클립보드에서 삭제" : "값 복사됨",
+                        tone: .positive))
                 }
             }
             .labelStyle(.iconOnly)
-            .buttonStyle(.borderless)
-            .foregroundStyle(copied ? SeedColor.fgPositive : .primary)
+            .buttonStyle(.seedIcon())
             .help(variable.isSecret ? "값 복사 — 30초 후 클립보드에서 자동 삭제됩니다" : "값 복사")
         }
         .seedListRow()
@@ -309,30 +315,39 @@ private struct AddVariableSheet: View {
     }
 
     var body: some View {
-        Form {
-            Section("새 키 — \(environmentName)") {
-                TextField("KEY", text: $key)
+        VStack(alignment: .leading, spacing: SeedSpacing.x5) {
+            Text("새 키 — \(environmentName)")
+                .font(SeedFont.t6(.bold))
+                .foregroundStyle(SeedColor.fgNeutral)
+            SeedField("KEY") {
+                SeedTextField("예: API_KEY", text: $key)
                     .fontDesign(.monospaced)
                     .autocorrectionDisabled()
-                TextField("값", text: $value).fontDesign(.monospaced)
-                TextField("설명 (선택)", text: $note)
-                Toggle("Secret (Keychain에 저장)", isOn: $isSecret)
             }
+            SeedField("값") {
+                SeedTextField("", text: $value).fontDesign(.monospaced)
+            }
+            SeedField("설명 (선택)") {
+                SeedTextField("", text: $note)
+            }
+            Toggle("Secret (Keychain에 저장)", isOn: $isSecret)
+                .toggleStyle(.seed)
             if let errorMessage {
                 SeedCallout(errorMessage, tone: .critical)
             }
-        }
-        .formStyle(.grouped)
-        .frame(width: 420)
-        .padding(.bottom)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
+            HStack {
+                Spacer()
                 Button("취소") { dismiss() }
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button("추가", action: add).disabled(key.isEmpty)
+                    .buttonStyle(.seed(.neutralWeak, size: .small))
+                    .keyboardShortcut(.cancelAction)
+                Button("추가", action: add)
+                    .buttonStyle(.seed(.brandSolid, size: .small))
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(key.isEmpty)
             }
         }
+        .padding(SeedSpacing.x5)
+        .frame(width: 420)
     }
 
     private func add() {

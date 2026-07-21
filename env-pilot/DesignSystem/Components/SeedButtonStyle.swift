@@ -32,6 +32,7 @@ struct SeedButtonStyle: ButtonStyle {
 
     var variant: Variant = .brandSolid
     var size: Size = .medium
+    var iconOnly = false
 
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -41,9 +42,9 @@ struct SeedButtonStyle: ButtonStyle {
         configuration.label
             .font(size.font)
             .foregroundStyle(foreground)
-            .padding(.horizontal, size.paddingX)
+            .padding(.horizontal, iconOnly ? size.paddingY : size.paddingX)
             .padding(.vertical, size.paddingY)
-            .frame(minHeight: size.minHeight)
+            .frame(minWidth: iconOnly ? size.minHeight : nil, minHeight: size.minHeight)
             .background(background(pressed: pressed), in: .rect(cornerRadius: size.cornerRadius))
             .contentShape(.rect(cornerRadius: size.cornerRadius))
             .scaleEffect(pressed && !reduceMotion ? size.pressedScale : 1)
@@ -73,5 +74,11 @@ extension ButtonStyle where Self == SeedButtonStyle {
     static func seed(_ variant: SeedButtonStyle.Variant = .brandSolid,
                      size: SeedButtonStyle.Size = .medium) -> SeedButtonStyle {
         SeedButtonStyle(variant: variant, size: size)
+    }
+
+    /// 아이콘 전용 버튼 (복사·열기 등 행 내부 액션)
+    static func seedIcon(_ variant: SeedButtonStyle.Variant = .ghost,
+                         size: SeedButtonStyle.Size = .xsmall) -> SeedButtonStyle {
+        SeedButtonStyle(variant: variant, size: size, iconOnly: true)
     }
 }

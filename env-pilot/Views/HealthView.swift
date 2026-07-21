@@ -141,20 +141,16 @@ struct HealthView: View {
             // 누락 키 클릭 → 해당 Variable 입력으로 이동 (§3.8 수용 기준)
             WrappingHStack {
                 ForEach(item.missingKeys, id: \.self) { key in
-                    Button {
+                    Button("\(key) 누락") {
                         onSelectMissingKey(item.targetPath, item.environmentName, key)
-                    } label: {
-                        SeedBadge("\(key) 누락", tone: .critical)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.seedChip(.critical))
                 }
                 ForEach(item.emptyValueKeys, id: \.self) { key in
-                    Button {
+                    Button("\(key) 빈 값") {
                         onSelectMissingKey(item.targetPath, item.environmentName, key)
-                    } label: {
-                        SeedBadge("\(key) 빈 값", tone: .warning)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.seedChip(.warning))
                 }
             }
         }

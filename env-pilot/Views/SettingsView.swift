@@ -93,7 +93,7 @@ struct EnvironmentsEditor: View {
                                 askDelete(environment)
                             }
                             .labelStyle(.iconOnly)
-                            .buttonStyle(.borderless)
+                            .buttonStyle(.seedIcon())
                         }
                     }
                     .onMove(perform: move)
