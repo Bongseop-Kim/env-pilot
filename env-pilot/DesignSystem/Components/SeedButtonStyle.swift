@@ -26,7 +26,7 @@ struct SeedButtonStyle: ButtonStyle {
             }
         }
         var cornerRadius: CGFloat { self == .xsmall ? SeedRadius.full : SeedRadius.r2 }
-        var font: Font { self == .xsmall ? SeedFont.t3(.bold) : SeedFont.t4(.bold) }
+        var font: Font { self == .xsmall ? SeedTypography.bodyBold : SeedTypography.sectionBold }
         var pressedScale: CGFloat { self == .xsmall ? SeedScale.s95 : SeedScale.s97 }
     }
 

@@ -91,7 +91,7 @@ struct GitChangesView: View {
                             Text(drift.fileExists
                                  ? "\(drift.target.relativePath) — Generate 이후 파일이 앱 밖에서 수정되었습니다"
                                  : "\(drift.target.relativePath) — 파일이 삭제되었습니다")
-                                .font(SeedFont.t3())
+                                .font(SeedTypography.body)
                                 .foregroundStyle(SeedColor.fgNeutralMuted)
                         }
                         Spacer()

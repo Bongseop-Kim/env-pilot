@@ -89,12 +89,12 @@ struct HistoryView: View {
                     Text(actionLabel(entry.action)).foregroundStyle(SeedColor.fgNeutralMuted)
                 }
                 Text("\(entry.repositoryName) · \(entry.targetPath) · \(entry.environmentName)")
-                    .font(SeedFont.t3())
+                    .font(SeedTypography.body)
                     .foregroundStyle(SeedColor.fgNeutralMuted)
             }
             Spacer()
             Text(entry.timestamp, style: .time)
-                .font(SeedFont.t3())
+                .font(SeedTypography.body)
                 .foregroundStyle(SeedColor.fgNeutralMuted)
         }
         .seedListRow()

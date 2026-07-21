@@ -9,11 +9,12 @@ struct SeedChipStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(SeedFont.t4(.medium))
+            // 13pt 리스트 행 안에 인라인 배치 — 본문보다 커지지 않게 라벨 크기로 고정
+            .font(SeedFont.t2(.medium))
             .foregroundStyle(isEnabled ? (tone == .neutral ? SeedColor.fgNeutral : tone.fg) : SeedColor.fgDisabled)
-            .padding(.horizontal, SeedSpacing.x3)
-            .padding(.vertical, SeedSpacing.x1_5)
-            .frame(minHeight: SeedSpacing.x8)
+            .padding(.horizontal, SeedSpacing.x2)
+            .padding(.vertical, SeedSpacing.x1)
+            .frame(minHeight: SeedSpacing.x6)
             .background(background(pressed: configuration.isPressed), in: .capsule)
             .contentShape(.capsule)
             .animation(SeedEasing.easing(), value: configuration.isPressed)

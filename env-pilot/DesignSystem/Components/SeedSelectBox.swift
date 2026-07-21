@@ -19,18 +19,18 @@ struct SeedSelectBox: View {
             HStack(spacing: SeedSpacing.x3) {
                 VStack(alignment: .leading, spacing: SeedSpacing.x0_5) {
                     Text(label)
-                        .font(SeedFont.t4(.medium))
+                        .font(SeedTypography.section)
                         .foregroundStyle(SeedColor.fgNeutral)
                     if let description {
                         Text(description)
-                            .font(SeedFont.t3())
+                            .font(SeedTypography.body)
                             .foregroundStyle(SeedColor.fgNeutralMuted)
                     }
                 }
                 Spacer(minLength: 0)
                 if isSelected {
                     Image(systemName: "checkmark")
-                        .font(SeedFont.t3(.bold))
+                        .font(SeedTypography.bodyBold)
                         .foregroundStyle(SeedColor.fgNeutral)
                 }
             }

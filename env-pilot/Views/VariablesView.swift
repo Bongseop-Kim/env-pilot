@@ -199,7 +199,7 @@ private struct VariableRow: View {
         HStack(spacing: 12) {
             HStack(spacing: 4) {
                 if variable.isSecret {
-                    Image(systemName: "lock.fill").foregroundStyle(SeedColor.fgNeutralMuted).font(SeedFont.t3())
+                    Image(systemName: "lock.fill").foregroundStyle(SeedColor.fgNeutralMuted).font(SeedTypography.body)
                 }
                 Text(variable.key).fontDesign(.monospaced).fontWeight(.medium)
                     .help(variable.key)   // 고정폭 컬럼에서 잘린 긴 키 확인용
@@ -317,7 +317,7 @@ private struct AddVariableSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: SeedSpacing.x5) {
             Text("새 키 — \(environmentName)")
-                .font(SeedFont.t6(.bold))
+                .font(SeedTypography.title)
                 .foregroundStyle(SeedColor.fgNeutral)
             SeedField("KEY") {
                 SeedTextField("예: API_KEY", text: $key)

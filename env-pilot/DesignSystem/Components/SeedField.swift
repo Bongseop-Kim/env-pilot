@@ -18,7 +18,7 @@ struct SeedField<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: SeedSpacing.x2) {
             Text(label)
-                .font(SeedFont.t4(.medium))
+                .font(SeedTypography.section)
                 .foregroundStyle(SeedColor.fgNeutralMuted)
                 .padding(.horizontal, SeedSpacing.x0_5)
             content
@@ -35,7 +35,7 @@ struct SeedField<Content: View>: View {
             if let icon { Image(systemName: icon) }
             Text(text)
         }
-        .font(SeedFont.t4())
+        .font(SeedTypography.bodyLarge)
         .foregroundStyle(color)
         .padding(.horizontal, SeedSpacing.x0_5)
     }

@@ -11,7 +11,7 @@ struct SeedSwitchStyle: ToggleStyle {
         } label: {
             HStack(spacing: SeedSpacing.x2) {
                 configuration.label
-                    .font(SeedFont.t4(.medium))
+                    .font(SeedTypography.section)
                     .foregroundStyle(SeedColor.fgNeutral)
                     .opacity(isEnabled ? 1 : 0.58)
                 Spacer(minLength: 0)

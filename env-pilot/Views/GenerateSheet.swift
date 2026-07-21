@@ -20,7 +20,7 @@ struct GenerateSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Generate — \(environmentName)")
-                .font(SeedFont.t6(.bold))
+                .font(SeedTypography.title)
                 .padding()
 
             if let issues = safetyIssues {
@@ -85,7 +85,7 @@ struct GenerateSheet: View {
                     .fontDesign(.monospaced)
                 HStack {
                     if !report.isIgnored {
-                        Text(".gitignore에 없습니다 — 커밋될 수 있습니다").font(SeedFont.t3())
+                        Text(".gitignore에 없습니다 — 커밋될 수 있습니다").font(SeedTypography.body)
                         Button(".gitignore에 추가") {
                             try? GitSafetyService.addToGitignore(
                                 line: (report.outputRelativePath as NSString).lastPathComponent,
@@ -98,7 +98,7 @@ struct GenerateSheet: View {
                         .buttonStyle(.seed(.neutralWeak, size: .xsmall))
                     }
                     if report.isTracked {
-                        Text("이미 Git에 커밋됨 — git rm --cached 필요").font(SeedFont.t3()).foregroundStyle(SeedColor.fgCritical)
+                        Text("이미 Git에 커밋됨 — git rm --cached 필요").font(SeedTypography.body).foregroundStyle(SeedColor.fgCritical)
                     }
                 }
             }
@@ -119,7 +119,7 @@ private struct PlanRow: View {
                     .fontDesign(.monospaced)
                     .foregroundStyle(SeedColor.fgNeutralMuted)
                 Spacer()
-                Text(label).font(SeedFont.t3()).foregroundStyle(SeedColor.fgNeutralMuted)
+                Text(label).font(SeedTypography.body).foregroundStyle(SeedColor.fgNeutralMuted)
             }
             if plan.action == .overwrite, let existing = plan.existingContent {
                 let diff = GenerateService.lineDiff(old: existing, new: plan.content)
@@ -131,7 +131,7 @@ private struct PlanRow: View {
                         Text("+ \(line)").foregroundStyle(SeedColor.fgPositive)
                     }
                 }
-                .font(SeedFont.t3())
+                .font(SeedTypography.body)
                 .fontDesign(.monospaced)
                 .padding(.leading, 24)
             }

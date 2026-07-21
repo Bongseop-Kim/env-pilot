@@ -23,7 +23,7 @@ struct TargetScanSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Monorepo Target 발견")
-                .font(SeedFont.t6(.bold))
+                .font(SeedTypography.title)
                 .padding()
 
             List(candidates, id: \.relativePath) { candidate in
@@ -35,11 +35,11 @@ struct TargetScanSheet: View {
                         Spacer()
                         if candidate.hasExample {
                             Label(".env.example", systemImage: "doc.text")
-                                .font(SeedFont.t3())
+                                .font(SeedTypography.body)
                                 .foregroundStyle(SeedColor.fgNeutralMuted)
                         }
                         if isExisting {
-                            Text("추가됨").font(SeedFont.t3()).foregroundStyle(SeedColor.fgNeutralMuted)
+                            Text("추가됨").font(SeedTypography.body).foregroundStyle(SeedColor.fgNeutralMuted)
                         }
                     }
                 }

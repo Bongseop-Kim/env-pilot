@@ -46,7 +46,7 @@ struct ContentView: View {
                             if let status = healthByRepo[repo.uuid], status != .healthy {
                                 Image(systemName: status.iconName)
                                     .foregroundStyle(status.color)
-                                    .font(.caption)
+                                    .font(SeedTypography.caption)
                             }
                         }
                         .tag(SidebarItem.repository(repo.persistentModelID))
@@ -213,7 +213,7 @@ struct RepositoryDetailView: View {
     @State private var showExport = false
     @State private var showEnvironmentsEditor = false
 
-    enum DetailTab { case variables, accounts, compare, health, gitChanges }
+    enum DetailTab { case variables, accounts, health, gitChanges }
 
     private var isLinked: Bool { RepositoryService.resolveBookmark(repo) != nil }
     private var targets: [Target] { (repo.targets ?? []).sorted { $0.relativePath < $1.relativePath } }
@@ -309,14 +309,6 @@ struct RepositoryDetailView: View {
             }
         case .accounts:
             CredentialsView(repo: repo)
-        case .compare:
-            if let target = selectedTarget {
-                CompareView(target: target, environmentNames: environmentNames)
-                    .id(target.persistentModelID)
-            } else {
-                Text("Target이 없습니다").foregroundStyle(SeedColor.fgNeutralMuted)
-                    .frame(maxHeight: .infinity)
-            }
         case .health:
             HealthView(
                 items: healthItems,
@@ -472,7 +464,7 @@ struct RepositoryDetailView: View {
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
                     .help("이 Repository의 Environment 목록 편집 (추가/삭제/순서)")
-                    if (tab == .variables || tab == .compare) && targets.count > 1 {
+                    if tab == .variables && targets.count > 1 {
                         Picker("Target", selection: $selectedTargetPath) {
                             ForEach(targets, id: \.relativePath) { Text($0.relativePath).tag($0.relativePath) }
                         }
@@ -484,7 +476,7 @@ struct RepositoryDetailView: View {
                     }
                     Spacer()
                     Text(repo.gitRemoteURL ?? repo.localPathDisplay ?? "")
-                        .font(SeedFont.t2())
+                        .font(SeedTypography.label)
                         .foregroundStyle(SeedColor.fgNeutralMuted)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -497,7 +489,6 @@ struct RepositoryDetailView: View {
             SeedTabs(selection: $tab, items: [
                 (DetailTab.variables, "Variables"),
                 (DetailTab.accounts, "Accounts"),
-                (DetailTab.compare, "Compare"),
                 (DetailTab.health, "Health"),
                 (DetailTab.gitChanges, "Git Changes"),
             ])

@@ -22,7 +22,7 @@ struct SeedTabs<Value: Hashable>: View {
                     withAnimation(SeedEasing.easing(SeedDuration.d4)) { selection = value }
                 } label: {
                     Text(label)
-                        .font(SeedFont.t4(.bold))
+                        .font(SeedTypography.sectionBold)
                         .foregroundStyle(isSelected ? SeedColor.fgNeutral : SeedColor.fgNeutralSubtle)
                         .padding(.horizontal, SeedSpacing.x2_5)
                         .padding(.vertical, SeedSpacing.x2_5)

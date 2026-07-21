@@ -21,7 +21,7 @@ struct SeedSegmentedControl<Value: Hashable>: View {
                     withAnimation(SeedEasing.easing(SeedDuration.d4)) { selection = value }
                 } label: {
                     Text(label)
-                        .font(SeedFont.t3(.bold))
+                        .font(SeedTypography.bodyBold)
                         .foregroundStyle(isSelected ? SeedColor.fgNeutral : SeedColor.fgNeutralSubtle)
                         .padding(.horizontal, SeedSpacing.x4)
                         .frame(minHeight: 28)   // ponytail: seed 34px → 데스크톱 행 밀도에 맞춰 축소

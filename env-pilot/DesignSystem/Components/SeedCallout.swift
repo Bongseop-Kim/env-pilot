@@ -17,7 +17,7 @@ struct SeedCallout<Content: View>: View {
             Image(systemName: systemImage ?? defaultIcon)
                 .foregroundStyle(tone.fg)
             content
-                .font(SeedFont.t4())
+                .font(SeedTypography.bodyLarge)
         }
         .padding(SeedSpacing.x4)
         .frame(maxWidth: .infinity, alignment: .leading)

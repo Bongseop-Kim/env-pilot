@@ -73,7 +73,7 @@ private struct CredentialRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(credential.label).fontWeight(.medium)
                 if let note = credential.note {
-                    Text(note).font(SeedFont.t3()).foregroundStyle(SeedColor.fgNeutralMuted).lineLimit(1)
+                    Text(note).font(SeedTypography.body).foregroundStyle(SeedColor.fgNeutralMuted).lineLimit(1)
                 }
             }
             .frame(width: 180, alignment: .leading)
@@ -152,7 +152,7 @@ private struct AddCredentialSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: SeedSpacing.x5) {
             Text("새 계정 — \(repo.name)")
-                .font(SeedFont.t6(.bold))
+                .font(SeedTypography.title)
                 .foregroundStyle(SeedColor.fgNeutral)
             SeedField("이름") {
                 SeedTextField("예: Staging 관리자", text: $label)

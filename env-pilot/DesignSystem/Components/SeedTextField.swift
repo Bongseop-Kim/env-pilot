@@ -25,7 +25,7 @@ struct SeedTextField: View {
             }
         }
         .textFieldStyle(.plain)
-        .font(SeedFont.t4())
+        .font(SeedTypography.bodyLarge)
         .focused($focused)
         .padding(.horizontal, SeedSpacing.x3_5)
         .frame(minHeight: SeedSpacing.x10)

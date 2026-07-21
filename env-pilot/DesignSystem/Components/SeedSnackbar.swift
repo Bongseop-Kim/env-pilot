@@ -43,7 +43,7 @@ private struct SeedSnackbarView: View {
                 EmptyView()
             }
             Text(message.text)
-                .font(SeedFont.t4())
+                .font(SeedTypography.bodyLarge)
                 .foregroundStyle(SeedColor.fgNeutralInverted)
         }
         .padding(.horizontal, SeedSpacing.x4)
