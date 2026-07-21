@@ -49,22 +49,17 @@ struct TargetScanSheet: View {
             HStack {
                 Spacer()
                 Button("취소") { dismiss() }
+                    .buttonStyle(.seed(.neutralWeak, size: .small))
                     .keyboardShortcut(.cancelAction)
                 Button("Target 추가 (\(selected.count))") { add() }
+                    .buttonStyle(.seed(.brandSolid, size: .small))
                     .keyboardShortcut(.defaultAction)
                     .disabled(selected.isEmpty)
             }
             .padding()
         }
         .frame(width: 440, height: 340)
-        .alert("저장 실패", isPresented: Binding(
-            get: { saveError != nil },
-            set: { if !$0 { saveError = nil } }
-        )) {
-            Button("확인", role: .cancel) {}
-        } message: {
-            Text(saveError ?? "")
-        }
+        .errorAlert($saveError, title: "저장 실패")
     }
 
     private func binding(for path: String) -> Binding<Bool> {

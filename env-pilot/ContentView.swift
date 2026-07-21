@@ -180,11 +180,7 @@ struct ContentView: View {
                 BundleImportSheet(data: bundleData, workspace: workspace)
             }
         }
-        .alert("오류", isPresented: .constant(errorMessage != nil)) {
-            Button("확인") { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
+        .errorAlert($errorMessage)
         .task { refreshSidebarHealth() }
         .onChange(of: environmentNames, initial: true) {
             // Repository 전환·Environment 삭제 시 선택값 폴백
@@ -311,11 +307,7 @@ struct RepositoryDetailView: View {
                 GenerateSheet(repo: repo, plans: plans, rootURL: rootURL, environmentName: environmentName)
             }
         }
-        .alert("오류", isPresented: .constant(generateError != nil)) {
-            Button("확인") { generateError = nil }
-        } message: {
-            Text(generateError ?? "")
-        }
+        .errorAlert($generateError)
         .fileImporter(isPresented: $showRelinker, allowedContentTypes: [.folder]) { result in
             guard case .success(let url) = result else { return }
             try? RepositoryService.relink(repo: repo, folderURL: url, context: context)
@@ -474,8 +466,8 @@ struct RepositoryDetailView: View {
         VStack(alignment: .leading, spacing: 6) {
             if !isLinked {
                 HStack {
-                    Label("이 Mac에서 폴더에 접근할 수 없습니다", systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(SeedColor.fgBrand)
+                    StatusLabel("이 Mac에서 폴더에 접근할 수 없습니다",
+                                systemImage: "exclamationmark.triangle", tone: .warning)
                     Button("폴더 다시 연결…") { showRelinker = true }
                 }
             }
@@ -492,12 +484,7 @@ struct RepositoryDetailView: View {
 
                 // 라벨에 숫자를 넣으면 segmented control 폭이 흔들려 별도 뱃지로 표시
                 if diffCount > 0 {
-                    Text("\(diffCount)")
-                        .font(.caption2.bold())
-                        .foregroundStyle(SeedColor.fgBrand)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 1)
-                        .background(.orange.opacity(0.15), in: Capsule())
+                    SeedBadge("\(diffCount)", tone: .brand)
                         .help("처리 대기 중인 Git 변경 \(diffCount)건")
                 }
 

@@ -1,5 +1,17 @@
 import SwiftUI
 
+extension HealthStatus {
+    var seedTone: SeedTone {
+        switch self {
+        case .healthy: .positive
+        case .warning: .warning
+        case .critical: .critical
+        }
+    }
+
+    var color: Color { seedTone.fg }
+}
+
 /// Health 탭 (PRD §3.8) — Target × Environment 판정 상세 + Git Safety 이슈 + pre-commit hook (§3.19).
 struct HealthView: View {
     let items: [HealthService.Item]
@@ -54,7 +66,7 @@ struct HealthView: View {
                 Spacer()
                 if !agentsRuleInstalled {
                     Button("AGENTS.md에 규칙 추가") { onAddAgentsRule() }
-                        .controlSize(.small)
+                        .buttonStyle(.seed(.neutralWeak, size: .xsmall))
                         .help("AGENTS.md에 .env 파일을 읽지 말라는 공통 규칙 블록을 추가합니다")
                 }
             }
@@ -68,7 +80,7 @@ struct HealthView: View {
                     Spacer()
                     if !claudeEnvDenied {
                         Button("읽기 차단 규칙 추가") { onAddClaudeDeny() }
-                            .controlSize(.small)
+                            .buttonStyle(.seed(.neutralWeak, size: .xsmall))
                             .help(".claude/settings.local.json의 permissions.deny에 출력 파일 차단 규칙을 추가합니다")
                     }
                 }
@@ -90,7 +102,7 @@ struct HealthView: View {
                     Button(hookInstalled ? "제거" : "pre-commit hook 설치") {
                         hookInstalled ? onRemoveHook() : onInstallHook()
                     }
-                    .controlSize(.small)
+                    .buttonStyle(.seed(.neutralWeak, size: .xsmall))
                 }
             }
         }
@@ -129,20 +141,20 @@ struct HealthView: View {
             // 누락 키 클릭 → 해당 Variable 입력으로 이동 (§3.8 수용 기준)
             WrappingHStack {
                 ForEach(item.missingKeys, id: \.self) { key in
-                    Button("\(key) 누락") {
+                    Button {
                         onSelectMissingKey(item.targetPath, item.environmentName, key)
+                    } label: {
+                        SeedBadge("\(key) 누락", tone: .critical)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .tint(.red)
+                    .buttonStyle(.plain)
                 }
                 ForEach(item.emptyValueKeys, id: \.self) { key in
-                    Button("\(key) 빈 값") {
+                    Button {
                         onSelectMissingKey(item.targetPath, item.environmentName, key)
+                    } label: {
+                        SeedBadge("\(key) 빈 값", tone: .warning)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .tint(.yellow)
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -162,7 +174,7 @@ struct HealthView: View {
                                 Button(".gitignore에 추가") {
                                     onAddToGitignore((report.outputRelativePath as NSString).lastPathComponent)
                                 }
-                                .controlSize(.small)
+                                .buttonStyle(.seed(.neutralWeak, size: .xsmall))
                             }
                             if report.isTracked {
                                 Label("Git에 커밋되어 있음 — git rm --cached로 제거 필요", systemImage: "xmark.octagon.fill")
@@ -172,7 +184,7 @@ struct HealthView: View {
                                 Label("권한이 0600이 아님", systemImage: "lock.open")
                                     .foregroundStyle(SeedColor.fgWarning)
                                 Button("수정") { onFixPermissions(report) }
-                                    .controlSize(.small)
+                                    .buttonStyle(.seed(.neutralWeak, size: .xsmall))
                             }
                         }
                         .font(.caption)

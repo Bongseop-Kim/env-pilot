@@ -27,15 +27,8 @@ enum HealthStatus: Int, Comparable {
         }
     }
 
-    var color: Color { seedTone.fg }
-
-    var seedTone: SeedTone {
-        switch self {
-        case .healthy: .positive
-        case .warning: .warning
-        case .critical: .critical
-        }
-    }
+    // 색상은 프레젠테이션 관심사 — HealthView.swift의 extension(seedTone/color) 참고.
+    // (여기 두면 Tests/*Checks.swift의 단독 swiftc 컴파일이 DesignSystem에 묶인다)
 }
 
 enum HealthService {

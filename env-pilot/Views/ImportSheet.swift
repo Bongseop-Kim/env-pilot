@@ -44,18 +44,21 @@ struct ImportSheet: View {
             }
 
             if !warnings.isEmpty {
-                Text("경고: \(warnings.joined(separator: " / "))")
-                    .font(.caption).foregroundStyle(SeedColor.fgBrand).padding(.horizontal)
+                SeedCallout(warnings.joined(separator: " / "), tone: .warning)
+                    .padding(.horizontal)
             }
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(SeedColor.fgCritical).padding(.horizontal)
+                SeedCallout(errorMessage, tone: .critical)
+                    .padding(.horizontal)
             }
 
             HStack {
                 Spacer()
                 Button("취소") { dismiss() }
+                    .buttonStyle(.seed(.neutralWeak, size: .small))
                     .keyboardShortcut(.cancelAction)
                 Button("가져오기 (\(applicableCount))") { run() }
+                    .buttonStyle(.seed(.brandSolid, size: .small))
                     .keyboardShortcut(.defaultAction)
                     .disabled(applicableCount == 0)
             }

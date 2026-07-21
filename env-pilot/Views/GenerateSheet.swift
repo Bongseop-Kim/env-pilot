@@ -33,19 +33,23 @@ struct GenerateSheet: View {
             }
 
             if !errors.isEmpty {
-                ForEach(errors, id: \.self) { Text($0).foregroundStyle(SeedColor.fgCritical).padding(.horizontal) }
+                SeedCallout(errors.joined(separator: "\n"), tone: .critical)
+                    .padding(.horizontal)
             }
 
             HStack {
                 Spacer()
                 if safetyIssues == nil {
                     Button("취소") { dismiss() }
+                        .buttonStyle(.seed(.neutralWeak, size: .small))
                         .keyboardShortcut(.cancelAction)
                     Button("생성 (\(writablePlans))") { run() }
+                        .buttonStyle(.seed(.brandSolid, size: .small))
                         .keyboardShortcut(.defaultAction)
                         .disabled(writablePlans == 0)
                 } else {
                     Button("닫기") { dismiss() }
+                        .buttonStyle(.seed(.neutralWeak, size: .small))
                         .keyboardShortcut(.defaultAction)
                 }
             }
@@ -77,7 +81,7 @@ struct GenerateSheet: View {
         List(issues) { report in
             VStack(alignment: .leading, spacing: 4) {
                 Label(report.outputRelativePath, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(SeedColor.fgBrand)
+                    .foregroundStyle(SeedColor.fgWarning)
                     .fontDesign(.monospaced)
                 HStack {
                     if !report.isIgnored {
@@ -91,7 +95,7 @@ struct GenerateSheet: View {
                                 .filter { paths.contains($0.targetPath) && $0.hasIssue }
                             if remaining.isEmpty { dismiss() } else { safetyIssues = remaining }
                         }
-                        .controlSize(.small)
+                        .buttonStyle(.seed(.neutralWeak, size: .xsmall))
                     }
                     if report.isTracked {
                         Text("이미 Git에 커밋됨 — git rm --cached 필요").font(.caption).foregroundStyle(SeedColor.fgCritical)
@@ -137,11 +141,11 @@ private struct PlanRow: View {
 
     private var icon: (String, Color) {
         switch plan.action {
-        case .create: ("plus.circle.fill", .green)
-        case .overwrite: ("exclamationmark.triangle.fill", .orange)
-        case .unchanged: ("checkmark.circle", .secondary)
-        case .skipEmpty: ("minus.circle", .secondary)
-        case .missingDir: ("xmark.circle.fill", .red)
+        case .create: ("plus.circle.fill", SeedColor.fgPositive)
+        case .overwrite: ("exclamationmark.triangle.fill", SeedColor.fgWarning)
+        case .unchanged: ("checkmark.circle", SeedColor.fgNeutralMuted)
+        case .skipEmpty: ("minus.circle", SeedColor.fgNeutralMuted)
+        case .missingDir: ("xmark.circle.fill", SeedColor.fgCritical)
         }
     }
 

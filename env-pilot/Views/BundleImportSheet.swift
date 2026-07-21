@@ -27,19 +27,23 @@ struct BundleImportSheet: View {
             }
 
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(SeedColor.fgCritical).font(.caption).padding(.horizontal)
+                SeedCallout(errorMessage, tone: .critical)
+                    .padding(.horizontal)
             }
 
             HStack {
                 Spacer()
                 Button("취소") { dismiss() }
+                    .buttonStyle(.seed(.neutralWeak, size: .small))
                     .keyboardShortcut(.cancelAction)
                 if payload != nil {
                     Button("가져오기 (\(applicableCount))") { run() }
+                        .buttonStyle(.seed(.brandSolid, size: .small))
                         .keyboardShortcut(.defaultAction)
                         .disabled(applicableCount == 0 && items.isEmpty)
                 } else if needsPassphrase {
                     Button("열기") { decrypt() }
+                        .buttonStyle(.seed(.brandSolid, size: .small))
                         .keyboardShortcut(.defaultAction)
                         .disabled(passphrase.isEmpty)
                 }
@@ -53,7 +57,7 @@ struct BundleImportSheet: View {
     private var passphrasePrompt: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("암호화된 번들입니다. 패스프레이즈를 입력하세요.")
-            SecureField("패스프레이즈", text: $passphrase)
+            SeedTextField("패스프레이즈", text: $passphrase, secure: true)
                 .onSubmit(decrypt)
         }
         .padding(.horizontal)

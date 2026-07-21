@@ -52,11 +52,7 @@ struct CredentialsView: View {
         .sheet(isPresented: $showAdd) {
             AddCredentialSheet(repo: repo)
         }
-        .alert("오류", isPresented: .constant(errorMessage != nil)) {
-            Button("확인") { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
+        .errorAlert($errorMessage)
     }
 }
 
@@ -169,7 +165,7 @@ private struct AddCredentialSheet: View {
                 TextField("설명 (선택)", text: $note)
             }
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(SeedColor.fgCritical)
+                SeedCallout(errorMessage, tone: .critical)
             }
         }
         .formStyle(.grouped)

@@ -57,11 +57,7 @@ struct CompareView: View {
                 }
                 .padding()
             }
-            .alert("오류", isPresented: .constant(errorMessage != nil)) {
-                Button("확인") { errorMessage = nil }
-            } message: {
-                Text(errorMessage ?? "")
-            }
+            .errorAlert($errorMessage)
         }
     }
 }

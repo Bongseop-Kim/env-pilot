@@ -46,8 +46,10 @@ struct ExportSheet: View {
 
             Toggle("Secret 실값 포함", isOn: $includeSecrets)
             if includeSecrets {
-                SecureField("패스프레이즈", text: $passphrase)
-                SecureField("패스프레이즈 확인", text: $passphraseConfirm)
+                SeedTextField("패스프레이즈", text: $passphrase, secure: true)
+                SeedTextField("패스프레이즈 확인", text: $passphraseConfirm,
+                              isInvalid: !passphraseConfirm.isEmpty && passphrase != passphraseConfirm,
+                              secure: true)
                 Text("Secret이 포함되므로 파일 전체가 AES-GCM으로 암호화됩니다. 패스프레이즈를 잊으면 복구할 수 없습니다.")
                     .font(.caption)
                     .foregroundStyle(SeedColor.fgNeutralMuted)
@@ -58,14 +60,16 @@ struct ExportSheet: View {
             }
 
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(SeedColor.fgCritical).font(.caption)
+                SeedCallout(errorMessage, tone: .critical)
             }
 
             HStack {
                 Spacer()
                 Button("취소") { dismiss() }
+                    .buttonStyle(.seed(.neutralWeak, size: .small))
                     .keyboardShortcut(.cancelAction)
                 Button("내보내기…") { export() }
+                    .buttonStyle(.seed(.brandSolid, size: .small))
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canExport)
             }

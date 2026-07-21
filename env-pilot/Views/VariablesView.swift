@@ -98,11 +98,7 @@ struct VariablesView: View {
                 pendingAddKey = nil
             }
         }
-        .alert("오류", isPresented: .constant(errorMessage != nil)) {
-            Button("확인") { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
+        .errorAlert($errorMessage)
     }
 
     /// §3.20 — 현재 Target × Environment 전체를 지정 포맷으로 복사. Secret 포함 시 §3.16 자동 삭제.
@@ -245,7 +241,7 @@ private struct VariableRow: View {
             }
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
-            .foregroundStyle(copied ? .green : .primary)
+            .foregroundStyle(copied ? SeedColor.fgPositive : .primary)
             .help(variable.isSecret ? "값 복사 — 30초 후 클립보드에서 자동 삭제됩니다" : "값 복사")
         }
         .padding(.vertical, 2)
@@ -323,7 +319,7 @@ private struct AddVariableSheet: View {
                 Toggle("Secret (Keychain에 저장)", isOn: $isSecret)
             }
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(SeedColor.fgCritical)
+                SeedCallout(errorMessage, tone: .critical)
             }
         }
         .formStyle(.grouped)

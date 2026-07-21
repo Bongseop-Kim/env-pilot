@@ -29,7 +29,7 @@ struct GitChangesView: View {
                     ForEach(diffs) { diff in
                         Section(diff.target.relativePath) {
                             ForEach(diff.addedKeys, id: \.self) { key in
-                                DiffRow(symbol: "+", color: .green, key: key) {
+                                DiffRow(symbol: "+", color: SeedColor.fgPositive, key: key) {
                                     action("추가") {
                                         try ExampleDiffService.resolveAdded(
                                             key: key, action: .addToAllEnvironments, target: diff.target,
@@ -43,12 +43,11 @@ struct GitChangesView: View {
                                 }
                             }
                             ForEach(diff.removedKeys, id: \.self) { key in
-                                DiffRow(symbol: "−", color: .red, key: key) {
+                                DiffRow(symbol: "−", color: SeedColor.fgCritical, key: key) {
                                     Button("삭제", role: .destructive) {
                                         pendingDelete = (key, diff.target)
                                     }
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.small)
+                                    .buttonStyle(.seed(.criticalSolid, size: .xsmall))
                                     action("무시") {
                                         try ExampleDiffService.resolveRemoved(
                                             key: key, action: .ignore, target: diff.target, context: context)
@@ -77,11 +76,7 @@ struct GitChangesView: View {
         } message: {
             Text("Secret이면 Keychain 값도 함께 삭제됩니다.")
         }
-        .alert("오류", isPresented: .constant(errorMessage != nil)) {
-            Button("확인") { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
+        .errorAlert($errorMessage)
     }
 
     /// §3.18 — 외부에서 수정된 출력 파일: 가져오기 / 덮어쓰기 / 무시. 삭제된 파일은 덮어쓰기만.
@@ -102,14 +97,14 @@ struct GitChangesView: View {
                         Spacer()
                         if drift.fileExists {
                             Button("가져오기") { onImportDrift(drift) }
-                                .buttonStyle(.bordered).controlSize(.small)
+                                .buttonStyle(.seed(.neutralWeak, size: .xsmall))
                                 .help("파일 내용을 앱으로 가져오기")
                             Button("무시") { onIgnoreDrift(drift) }
-                                .buttonStyle(.bordered).controlSize(.small)
+                                .buttonStyle(.seed(.neutralWeak, size: .xsmall))
                                 .help("현재 파일 내용을 새 기준점으로 인정")
                         }
                         Button("덮어쓰기") { onOverwriteDrift(drift) }
-                            .buttonStyle(.bordered).controlSize(.small)
+                            .buttonStyle(.seed(.neutralWeak, size: .xsmall))
                             .help("앱에 저장된 변수로 파일을 다시 생성")
                     }
                     .padding(.vertical, 2)
@@ -124,8 +119,7 @@ struct GitChangesView: View {
             do { try work(); onChanged() }
             catch { errorMessage = error.localizedDescription }
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
+        .buttonStyle(.seed(.neutralWeak, size: .xsmall))
     }
 }
 
