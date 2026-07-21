@@ -205,6 +205,7 @@ struct RepositoryDetailView: View {
     @State private var driftImportPlan: (items: [ImportService.Item], warnings: [String], target: Target)?
     @State private var healthItems: [HealthService.Item] = []
     @State private var safetyReports: [GitSafetyService.Report] = []
+    @State private var claudeEnvDenied: Bool?
     @State private var scanCandidates: [MonorepoScanner.Candidate]?
     @State private var pendingAddKey: String?
     @State private var showExport = false
@@ -306,6 +307,7 @@ struct RepositoryDetailView: View {
                 items: healthItems,
                 safetyReports: safetyReports,
                 hookInstalled: hookInstalled,
+                claudeEnvDenied: claudeEnvDenied,
                 onSelectMissingKey: { targetPath, environment, key in
                     // 누락 키 클릭 → 해당 Variable 입력으로 이동 (§3.8 수용 기준)
                     selectedTargetPath = targetPath
@@ -325,7 +327,14 @@ struct RepositoryDetailView: View {
                     refreshHealth()
                 },
                 onInstallHook: { installOrRemoveHook(install: true) },
-                onRemoveHook: { installOrRemoveHook(install: false) }
+                onRemoveHook: { installOrRemoveHook(install: false) },
+                onAddClaudeDeny: {
+                    guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
+                    let fileNames = targets.map(\.outputPath)
+                    do { try GitSafetyService.addClaudeEnvDenyRules(fileNames: fileNames, rootURL: rootURL) }
+                    catch { generateError = error.localizedDescription }
+                    refreshHealth()
+                }
             )
         case .gitChanges:
             GitChangesView(
@@ -382,6 +391,7 @@ struct RepositoryDetailView: View {
         guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
         healthItems = HealthService.check(repo: repo, rootURL: rootURL, environmentNames: environmentNames)
         safetyReports = GitSafetyService.check(repo: repo, rootURL: rootURL)
+        claudeEnvDenied = GitSafetyService.claudeEnvDenyStatus(rootURL: rootURL)
         hookInstalled = GitInfo.gitDirectory(of: rootURL) != nil
             ? GitSafetyService.isHookInstalled(rootURL: rootURL)
             : nil

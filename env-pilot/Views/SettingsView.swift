@@ -9,6 +9,7 @@ struct SettingsView: View {
     @AppStorage("defaultExamplePath") private var defaultExamplePath = ".env.example"
     @AppStorage("defaultOutputPath") private var defaultOutputPath = ".env.local"
     @AppStorage("iCloudSyncEnabled") private var iCloudSyncEnabled = false
+    @AppStorage(BiometricGate.settingKey) private var requireAuthForSecrets = true
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var newEnvironmentName = ""
     @State private var deleteCandidate: EnvEnvironment?
@@ -66,6 +67,10 @@ struct SettingsView: View {
                         }
                     }
                     .onAppear { launchAtLogin = SMAppService.mainApp.status == .enabled }
+                Toggle("Secret 표시·복사 시 인증 요구", isOn: $requireAuthForSecrets)
+                Text("Touch ID 또는 로그인 비밀번호로 승인합니다. 승인 후 60초간 재인증을 생략합니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("동기화") {

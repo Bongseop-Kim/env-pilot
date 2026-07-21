@@ -172,6 +172,57 @@ enum GitSafetyService {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
     }
 
+    // MARK: - AI 에이전트 노출 검사 (1Password zero-exposure 모델 참고)
+    // ponytail: Claude Code만 검사 — deny 규칙이 기계적으로 편집 가능한 유일한 에이전트.
+    // Cursor/Codex 등은 필요해지면 추가.
+
+    /// .claude 설정에 .env 읽기 차단(deny) 규칙이 있는지. .claude 디렉토리가 없으면 nil(해당 없음).
+    static func claudeEnvDenyStatus(rootURL: URL) -> Bool? {
+        let hasAccess = rootURL.startAccessingSecurityScopedResource()
+        defer { if hasAccess { rootURL.stopAccessingSecurityScopedResource() } }
+        let claudeDir = rootURL.appendingPathComponent(".claude")
+        guard FileManager.default.fileExists(atPath: claudeDir.path) else { return nil }
+        for name in ["settings.json", "settings.local.json"] {
+            if let data = try? Data(contentsOf: claudeDir.appendingPathComponent(name)),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               hasEnvDenyRule(json) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// permissions.deny 안에 .env를 언급하는 Read 차단 규칙이 있는지.
+    static func hasEnvDenyRule(_ json: [String: Any]) -> Bool {
+        let deny = (json["permissions"] as? [String: Any])?["deny"] as? [String] ?? []
+        return deny.contains { $0.hasPrefix("Read(") && $0.contains(".env") }
+    }
+
+    /// permissions.deny에 출력 파일명별 Read 차단 규칙 병합 (멱등). 나머지 설정은 보존.
+    static func insertingClaudeDenyRules(into json: [String: Any], fileNames: [String]) -> [String: Any] {
+        var json = json
+        var permissions = json["permissions"] as? [String: Any] ?? [:]
+        var deny = permissions["deny"] as? [String] ?? []
+        for name in Set(fileNames).sorted() {
+            let rule = "Read(**/\(name))"
+            if !deny.contains(rule) { deny.append(rule) }
+        }
+        permissions["deny"] = deny
+        json["permissions"] = permissions
+        return json
+    }
+
+    /// .claude/settings.local.json에 차단 규칙 기록 (개인 설정 — 팀 공유 settings.json은 건드리지 않음).
+    static func addClaudeEnvDenyRules(fileNames: [String], rootURL: URL) throws {
+        let hasAccess = rootURL.startAccessingSecurityScopedResource()
+        defer { if hasAccess { rootURL.stopAccessingSecurityScopedResource() } }
+        let url = rootURL.appendingPathComponent(".claude/settings.local.json")
+        let existing = (try? JSONSerialization.jsonObject(with: Data(contentsOf: url))) as? [String: Any] ?? [:]
+        let merged = insertingClaudeDenyRules(into: existing, fileNames: fileNames)
+        let data = try JSONSerialization.data(withJSONObject: merged, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: url, options: .atomic)
+    }
+
     // MARK: - 간이 gitignore 매칭
 
     static func gitignorePatterns(at dir: URL) -> [String] {

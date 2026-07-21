@@ -5,18 +5,21 @@ struct HealthView: View {
     let items: [HealthService.Item]
     let safetyReports: [GitSafetyService.Report]
     let hookInstalled: Bool?   // nil = Git 저장소 아님 → hook 섹션 숨김
+    let claudeEnvDenied: Bool? // nil = .claude 설정 없음 → 에이전트 섹션 숨김
     let onSelectMissingKey: (_ targetPath: String, _ environmentName: String, _ key: String) -> Void
     let onAddToGitignore: (_ fileName: String) -> Void
     let onFixPermissions: (_ report: GitSafetyService.Report) -> Void
     let onInstallHook: () -> Void
     let onRemoveHook: () -> Void
+    let onAddClaudeDeny: () -> Void
 
     private var allHealthy: Bool {
         items.allSatisfy { $0.status == .healthy } && !safetyReports.contains(where: \.hasIssue)
     }
 
     var body: some View {
-        if items.isEmpty && safetyReports.allSatisfy({ !$0.hasIssue }) && hookInstalled == nil {
+        if items.isEmpty && safetyReports.allSatisfy({ !$0.hasIssue }) && hookInstalled == nil
+            && claudeEnvDenied == nil {
             ContentUnavailableView("판정 대상 없음", systemImage: "questionmark.circle",
                                    description: Text(".env.example이 있는 Target이 없습니다"))
         } else {
@@ -30,6 +33,28 @@ struct HealthView: View {
                     safetySection
                 }
                 hookSection
+                agentSection
+            }
+        }
+    }
+
+    /// AI 에이전트 노출 — Claude Code 설정이 있는데 .env 읽기 차단이 없으면 경고 (1Password zero-exposure 참고).
+    @ViewBuilder private var agentSection: some View {
+        if let claudeEnvDenied {
+            Section("AI 에이전트") {
+                HStack {
+                    Label(claudeEnvDenied
+                          ? "차단됨 — Claude Code가 .env 파일을 읽을 수 없습니다"
+                          : "Claude Code 설정이 있지만 .env 파일 읽기가 차단되지 않았습니다",
+                          systemImage: claudeEnvDenied ? "checkmark.shield.fill" : "exclamationmark.triangle.fill")
+                        .foregroundStyle(claudeEnvDenied ? .green : .yellow)
+                    Spacer()
+                    if !claudeEnvDenied {
+                        Button("읽기 차단 규칙 추가") { onAddClaudeDeny() }
+                            .controlSize(.small)
+                            .help(".claude/settings.local.json의 permissions.deny에 출력 파일 차단 규칙을 추가합니다")
+                    }
+                }
             }
         }
     }

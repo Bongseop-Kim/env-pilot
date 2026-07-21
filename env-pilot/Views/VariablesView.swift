@@ -103,8 +103,14 @@ struct VariablesView: View {
     private func copyAs(_ format: CopyFormat) {
         let all = (target.variables ?? [])
             .filter { $0.environmentName == environmentName && !$0.isIgnored }
-        let values = Dictionary(uniqueKeysWithValues: all.map { ($0.key, VariableService.value(of: $0)) })
-        ClipboardService.copy(format.render(values), clearAfterDelay: all.contains(where: \.isSecret))
+        let hasSecret = all.contains(where: \.isSecret)
+        Task {
+            if hasSecret {
+                guard await BiometricGate.authorize(reason: "Secret이 포함된 목록을 복사") else { return }
+            }
+            let values = Dictionary(uniqueKeysWithValues: all.map { ($0.key, VariableService.value(of: $0)) })
+            ClipboardService.copy(format.render(values), clearAfterDelay: hasSecret)
+        }
     }
 
     /// §3.17 — example 역생성. 기존 파일과 다르면 덮어쓰기 확인.
@@ -210,12 +216,17 @@ private struct VariableRow: View {
                     .foregroundStyle(.secondary)
             }
             Button("복사", systemImage: "doc.on.doc") {
-                // Secret만 30초 후 자동 삭제 대상 (§3.16)
-                ClipboardService.copy(VariableService.value(of: variable),
-                                      clearAfterDelay: variable.isSecret)
-                if variable.isSecret {
-                    showClipboardNote = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { showClipboardNote = false }
+                Task {
+                    if variable.isSecret {
+                        guard await BiometricGate.authorize(reason: "\(variable.key) 값을 복사") else { return }
+                    }
+                    // Secret만 30초 후 자동 삭제 대상 (§3.16)
+                    ClipboardService.copy(VariableService.value(of: variable),
+                                          clearAfterDelay: variable.isSecret)
+                    if variable.isSecret {
+                        showClipboardNote = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { showClipboardNote = false }
+                    }
                 }
             }
             .labelStyle(.iconOnly)
@@ -229,8 +240,11 @@ private struct VariableRow: View {
     }
 
     private func reveal() {
-        valueText = VariableService.value(of: variable)
-        revealed = true
+        Task {
+            guard await BiometricGate.authorize(reason: "\(variable.key) 값을 표시") else { return }
+            valueText = VariableService.value(of: variable)
+            revealed = true
+        }
     }
 
     private func commitValue() {
