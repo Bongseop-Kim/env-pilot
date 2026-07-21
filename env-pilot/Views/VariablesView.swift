@@ -55,19 +55,16 @@ struct VariablesView: View {
             Button("키 추가", systemImage: "plus") { addSheetKey = ""; showAdd = true }
                 .help("새 변수 추가 (⌘N)")
                 .keyboardShortcut("n", modifiers: .command)
-            Menu {
-                Button("Example 생성 — \(target.examplePath)", systemImage: "doc.badge.gearshape") {
-                    generateExample()
-                }
-                Menu("Copy as…") {
-                    ForEach(CopyFormat.allCases, id: \.self) { format in
-                        Button(format.rawValue) { copyAs(format) }
-                    }
-                }
-            } label: {
-                Label("더 보기", systemImage: "ellipsis.circle")
+            Button("Example 생성", systemImage: "doc.badge.gearshape") {
+                generateExample()
             }
-            .help("Example 생성 · 전체 복사")
+            .help("Example 생성 — \(target.examplePath)")
+            Menu("전체 복사", systemImage: "doc.on.doc") {
+                ForEach(CopyFormat.allCases, id: \.self) { format in
+                    Button(format.rawValue) { copyAs(format) }
+                }
+            }
+            .help("현재 env 파일을 포맷별로 복사")
         }
         .confirmationDialog("\(target.examplePath)이 이미 있고 내용이 다릅니다. 덮어쓸까요?",
                             isPresented: .constant(pendingExampleContent != nil), titleVisibility: .visible) {

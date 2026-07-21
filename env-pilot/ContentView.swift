@@ -298,15 +298,12 @@ struct RepositoryDetailView: View {
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .toolbar {
-            ToolbarItem {
-                Menu {
-                    Button(".env 파일 다시 찾기", systemImage: "viewfinder") { refreshEnvFiles() }
-                        .keyboardShortcut("r", modifiers: .command)
-                    Button("백업 및 공유…", systemImage: "square.and.arrow.up") { showExport = true }
-                } label: {
-                    Label("Repository 작업", systemImage: "ellipsis.circle")
-                }
-                .help(".env 파일 다시 찾기 · .envide 백업 및 공유")
+            ToolbarItemGroup {
+                Button(".env 파일 다시 찾기", systemImage: "viewfinder") { refreshEnvFiles() }
+                    .help("Repository에서 .env 파일 다시 찾기 (⌘R)")
+                    .keyboardShortcut("r", modifiers: .command)
+                Button("백업 및 공유", systemImage: "square.and.arrow.up") { showExport = true }
+                    .help(".envide 백업 및 공유")
             }
         }
         .sheet(isPresented: $showExport) {
