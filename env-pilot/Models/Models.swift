@@ -9,8 +9,6 @@ import SwiftData
 final class Workspace {
     var name: String = "Default"
     var createdAt: Date = Date()
-    @Relationship(deleteRule: .cascade, inverse: \EnvEnvironment.workspace)
-    var environments: [EnvEnvironment]? = []
     @Relationship(deleteRule: .cascade, inverse: \Repository.workspace)
     var repositories: [Repository]? = []
 
@@ -25,7 +23,6 @@ final class Workspace {
 final class EnvEnvironment {
     var name: String = ""              // 예: "Local", "Production" — 자유 편집
     var sortOrder: Int = 0
-    var workspace: Workspace?          // 레거시(Workspace 전역 시절) — migrateEnvironmentsToRepositories에서 이관
     var repository: Repository?
 
     init(name: String, sortOrder: Int = 0) {
@@ -151,24 +148,4 @@ extension Workspace {
          Credential.self, HistoryEntry.self]
 
     static let defaultEnvironmentNames = ["Local", "Development", "Staging", "Production"]
-
-    /// Workspace 전역 Environment(레거시) → 각 Repository로 복제 이관. 멱등.
-    static func migrateEnvironmentsToRepositories(_ context: ModelContext) {
-        guard let environments = try? context.fetch(FetchDescriptor<EnvEnvironment>()) else { return }
-        let legacy = environments.filter { $0.repository == nil }
-        guard !legacy.isEmpty else { return }
-
-        for env in legacy.sorted(by: { $0.sortOrder < $1.sortOrder }) {
-            for repo in env.workspace?.repositories ?? []
-            where !(repo.environments ?? []).contains(where: { $0.name == env.name }) {
-                let copy = EnvEnvironment(
-                    name: env.name,
-                    sortOrder: ((repo.environments ?? []).map(\.sortOrder).max() ?? -1) + 1)
-                copy.repository = repo
-                context.insert(copy)
-            }
-            context.delete(env)
-        }
-        try? context.save()
-    }
 }

@@ -62,11 +62,9 @@ struct env_pilotApp: App {
     /// 첫 실행 시 기본 Workspace 생성. Environment는 Repository 등록 시 기본 4종을 심는다.
     static func bootstrap(_ context: ModelContext) {
         let existing = (try? context.fetchCount(FetchDescriptor<Workspace>())) ?? 0
-        if existing == 0 {
-            context.insert(Workspace())
-            try? context.save()
-        }
-        Workspace.migrateEnvironmentsToRepositories(context)
+        guard existing == 0 else { return }
+        context.insert(Workspace())
+        try? context.save()
     }
 
     /// §3.13: 새 Mac의 bootstrap과 CloudKit 동기화가 만나면 Workspace가 중복된다.
@@ -77,11 +75,9 @@ struct env_pilotApp: App {
             let keeper = workspaces[0]
             for duplicate in workspaces.dropFirst() {
                 for repo in duplicate.repositories ?? [] { repo.workspace = keeper }
-                for env in duplicate.environments ?? [] { env.workspace = keeper }
                 context.delete(duplicate)
             }
         }
-        Workspace.migrateEnvironmentsToRepositories(context)  // 다른 Mac에서 넘어온 레거시 전역 Environment 흡수
         if let repositories = try? context.fetch(FetchDescriptor<Repository>()) {
             for repo in repositories {
                 var seen = Set<String>()
