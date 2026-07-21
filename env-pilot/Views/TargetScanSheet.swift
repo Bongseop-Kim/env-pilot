@@ -9,6 +9,7 @@ struct TargetScanSheet: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var selected: Set<String>
+    @State private var saveError: String?
     private let existingPaths: Set<String>
 
     init(repo: Repository, candidates: [MonorepoScanner.Candidate]) {
@@ -56,6 +57,14 @@ struct TargetScanSheet: View {
             .padding()
         }
         .frame(width: 440, height: 340)
+        .alert("저장 실패", isPresented: Binding(
+            get: { saveError != nil },
+            set: { if !$0 { saveError = nil } }
+        )) {
+            Button("확인", role: .cancel) {}
+        } message: {
+            Text(saveError ?? "")
+        }
     }
 
     private func binding(for path: String) -> Binding<Bool> {
@@ -74,7 +83,11 @@ struct TargetScanSheet: View {
             target.repository = repo
             context.insert(target)
         }
-        try? context.save()
-        dismiss()
+        do {
+            try context.save()
+            dismiss()
+        } catch {
+            saveError = error.localizedDescription
+        }
     }
 }
