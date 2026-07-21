@@ -24,7 +24,6 @@ struct ContentView: View {
     @State private var errorMessage: String?
     @State private var healthByRepo: [String: HealthStatus] = [:]
     @State private var repoPendingDelete: Repository?
-    @State private var showEnvironmentsEditor = false
 
     // Environment는 Repository 소속 — 선택된 repo의 목록 기준
     private var environmentNames: [String] {
@@ -148,33 +147,6 @@ struct ContentView: View {
                 placeholder
             }
         }
-        .toolbar {
-            // Environment 셀렉터 (PRD §4.2) — 선택된 Repository의 환경 목록 기준
-            ToolbarItem(placement: .primaryAction) {
-                if selectedRepository != nil {
-                    HStack(spacing: 4) {
-                        if !environmentNames.isEmpty {
-                            Picker("Environment", selection: $selectedEnvironment) {
-                                ForEach(environmentNames, id: \.self) { Text($0).tag($0) }
-                            }
-                            .pickerStyle(.menu)
-                            .fixedSize()
-                            .help("Environment 전환 — Variables/Health/Generate가 이 환경 기준으로 동작합니다")
-                        }
-                        Button("Environment 편집", systemImage: "slider.horizontal.3") {
-                            showEnvironmentsEditor = true
-                        }
-                        .labelStyle(.iconOnly)
-                        .help("이 Repository의 Environment 목록 편집 (추가/삭제/순서)")
-                    }
-                }
-            }
-        }
-        .sheet(isPresented: $showEnvironmentsEditor) {
-            if let repo = selectedRepository {
-                EnvironmentsEditor(repo: repo)
-            }
-        }
         .sheet(isPresented: Binding(presence: $bundleData)) {
             if let bundleData, let workspace = workspaces.first {
                 BundleImportSheet(data: bundleData, workspace: workspace)
@@ -239,6 +211,7 @@ struct RepositoryDetailView: View {
     @State private var scanCandidates: [MonorepoScanner.Candidate]?
     @State private var pendingAddKey: String?
     @State private var showExport = false
+    @State private var showEnvironmentsEditor = false
 
     enum DetailTab { case variables, accounts, compare, health, gitChanges }
 
@@ -256,14 +229,24 @@ struct RepositoryDetailView: View {
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .toolbar {
-            Button("Scan", systemImage: "arrow.trianglehead.2.clockwise") { scanMonorepo(auto: false) }
-                .help("Scan — Monorepo Target 탐색 및 .env.example 변경 감지 (⌘R)")
-                .keyboardShortcut("r", modifiers: .command)
-            Button("Generate", systemImage: "doc.badge.plus") { prepareGenerate() }
-                .help("Generate — \(environmentName) 환경 기준으로 .env 파일 생성 (⌘G)")
-                .keyboardShortcut("g", modifiers: .command)
-            Button("Export", systemImage: "square.and.arrow.up") { showExport = true }
-                .help("Export — .envide 번들로 내보내기 (다른 Mac·팀원과 공유)")
+            // 리포 수준 보조 액션 그룹 — 탭 수준 액션(+/⋯)과 급을 구분
+            ToolbarItemGroup {
+                Button("Scan", systemImage: "viewfinder") { scanMonorepo(auto: false) }
+                    .help("Scan — Monorepo Target 탐색 및 .env.example 변경 감지 (⌘R)")
+                    .keyboardShortcut("r", modifiers: .command)
+                Button("Export", systemImage: "square.and.arrow.up") { showExport = true }
+                    .help("Export — .envide 번들로 내보내기 (다른 Mac·팀원과 공유)")
+            }
+            // 주 액션 — 이 앱의 존재 이유이므로 prominent로 격상
+            ToolbarItem {
+                Button("Generate") { prepareGenerate() }
+                    .buttonStyle(.borderedProminent)
+                    .help("Generate — \(environmentName) 환경 기준으로 .env 파일 생성 (⌘G)")
+                    .keyboardShortcut("g", modifiers: .command)
+            }
+        }
+        .sheet(isPresented: $showEnvironmentsEditor) {
+            EnvironmentsEditor(repo: repo)
         }
         .sheet(isPresented: $showExport) {
             if let workspace = repo.workspace {
@@ -461,7 +444,7 @@ struct RepositoryDetailView: View {
         scanMonorepo(auto: true)
     }
 
-    /// 상단 행: 타겟 피커·diff 뱃지·경로. 탭 행: 탭만 — 탭의 하단 스트로크가 콘텐츠 경계선.
+    /// 상단 행: 스코프 선택자(Target·Environment)·diff 뱃지·경로. 탭 행: 탭만 — 탭의 하단 스트로크가 콘텐츠 경계선.
     private var header: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: SeedSpacing.x2) {
@@ -474,6 +457,21 @@ struct RepositoryDetailView: View {
                     }
                 }
                 HStack(spacing: SeedSpacing.x2) {
+                    // 항상 보이는 Environment를 왼쪽에 고정, 조건부 Target은 오른쪽 — 레이아웃 흔들림 방지
+                    if !environmentNames.isEmpty {
+                        Picker("Environment", selection: $selectedEnvironment) {
+                            ForEach(environmentNames, id: \.self) { Text($0).tag($0) }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .help("Environment 전환 — Variables/Health/Generate가 이 환경 기준으로 동작합니다")
+                    }
+                    Button("Environment 편집", systemImage: "slider.horizontal.3") {
+                        showEnvironmentsEditor = true
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .help("이 Repository의 Environment 목록 편집 (추가/삭제/순서)")
                     if (tab == .variables || tab == .compare) && targets.count > 1 {
                         Picker("Target", selection: $selectedTargetPath) {
                             ForEach(targets, id: \.relativePath) { Text($0.relativePath).tag($0.relativePath) }
