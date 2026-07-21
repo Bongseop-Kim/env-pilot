@@ -1,18 +1,16 @@
 import SwiftUI
 import SwiftData
 
-/// .env.example diff 처리 탭 (PRD §3.7) — 키별 추가/삭제/무시. + Output Drift (§3.18).
+/// .env.example diff와 실제 env 파일 변경을 처리한다.
 struct GitChangesView: View {
     let diffs: [ExampleDiffService.Diff]
-    let drifts: [GenerateService.Drift]
-    let environmentNames: [String]
+    let drifts: [LocalSyncService.Drift]
     let onChanged: () -> Void
-    let onImportDrift: (GenerateService.Drift) -> Void
-    let onOverwriteDrift: (GenerateService.Drift) -> Void
-    let onIgnoreDrift: (GenerateService.Drift) -> Void
+    let onImportDrift: (LocalSyncService.Drift) -> Void
+    let onOverwriteDrift: (LocalSyncService.Drift) -> Void
     @Environment(\.modelContext) private var context
     @State private var errorMessage: String?
-    @State private var pendingDelete: (key: String, target: Target)?   // 전 Environment 삭제는 확인 후 실행
+    @State private var pendingDelete: (key: String, target: Target)?
 
     var body: some View {
         Group {
@@ -20,25 +18,25 @@ struct GitChangesView: View {
                 ContentUnavailableView(
                     "변경 없음 ✓",
                     systemImage: "checkmark.circle",
-                    description: Text(".env.example과 출력 파일이 마지막 확인 시점과 일치합니다")
+                    description: Text("실제 env 파일과 Env Pilot 값이 일치합니다")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)   // 상단 정렬 VStack 안에서 중앙 배치
             } else {
                 List {
                     driftSection
                     ForEach(diffs) { diff in
-                        Section(diff.target.relativePath) {
+                        Section(diff.target.envFilePath) {
                             ForEach(diff.addedKeys, id: \.self) { key in
                                 DiffRow(symbol: "+", color: SeedColor.fgPositive, key: key) {
                                     action("추가") {
                                         try ExampleDiffService.resolveAdded(
-                                            key: key, action: .addToAllEnvironments, target: diff.target,
-                                            environmentNames: environmentNames, context: context)
+                                            key: key, action: .addToFile,
+                                            target: diff.target, context: context)
                                     }
                                     action("무시") {
                                         try ExampleDiffService.resolveAdded(
-                                            key: key, action: .ignore, target: diff.target,
-                                            environmentNames: environmentNames, context: context)
+                                            key: key, action: .ignore,
+                                            target: diff.target, context: context)
                                     }
                                 }
                             }
@@ -60,14 +58,14 @@ struct GitChangesView: View {
             }
         }
         .confirmationDialog(
-            "'\(pendingDelete?.key ?? "")'를 모든 Environment에서 삭제할까요?",
+            "'\(pendingDelete?.key ?? "")'를 이 파일에서 삭제할까요?",
             isPresented: Binding(presence: $pendingDelete), titleVisibility: .visible
         ) {
             Button("삭제", role: .destructive) {
                 guard let pending = pendingDelete else { return }
                 do {
                     try ExampleDiffService.resolveRemoved(
-                        key: pending.key, action: .deleteFromAllEnvironments,
+                        key: pending.key, action: .deleteFromFile,
                         target: pending.target, context: context)
                     onChanged()
                 } catch { errorMessage = error.localizedDescription }
@@ -79,37 +77,42 @@ struct GitChangesView: View {
         .errorAlert($errorMessage)
     }
 
-    /// §3.18 — 외부에서 수정된 출력 파일: 가져오기 / 덮어쓰기 / 무시. 삭제된 파일은 덮어쓰기만.
+    /// 외부 수정은 자동 덮어쓰지 않고 사용자가 어느 쪽을 유지할지 선택한다.
     @ViewBuilder private var driftSection: some View {
         if !drifts.isEmpty {
-            Section("외부에서 수정됨") {
+            Section("로컬 .env 변경") {
                 ForEach(drifts) { drift in
                     HStack {
                         Image(systemName: "pencil.line").foregroundStyle(SeedColor.fgBrand)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(drift.outputURL.lastPathComponent).fontDesign(.monospaced)
-                            Text(drift.fileExists
-                                 ? "\(drift.target.relativePath) — Generate 이후 파일이 앱 밖에서 수정되었습니다"
-                                 : "\(drift.target.relativePath) — 파일이 삭제되었습니다")
+                            Text(drift.target.envFilePath).fontDesign(.monospaced)
+                            Text(driftMessage(drift))
                                 .font(SeedTypography.body)
                                 .foregroundStyle(SeedColor.fgNeutralMuted)
                         }
                         Spacer()
                         if drift.fileExists {
-                            Button("가져오기") { onImportDrift(drift) }
+                            Button("로컬 변경 검토") { onImportDrift(drift) }
                                 .buttonStyle(.seed(.neutralWeak, size: .xsmall))
-                                .help("파일 내용을 앱으로 가져오기")
-                            Button("무시") { onIgnoreDrift(drift) }
-                                .buttonStyle(.seed(.neutralWeak, size: .xsmall))
-                                .help("현재 파일 내용을 새 기준점으로 인정")
+                                .help("로컬 파일의 추가·수정 값을 검토")
                         }
-                        Button("덮어쓰기") { onOverwriteDrift(drift) }
+                        Button(drift.fileExists ? "Env Pilot 값 적용" : "파일 복원") {
+                            onOverwriteDrift(drift)
+                        }
                             .buttonStyle(.seed(.neutralWeak, size: .xsmall))
-                            .help("앱에 저장된 변수로 파일을 다시 생성")
+                            .help("Env Pilot의 값으로 실제 파일 갱신")
                     }
                     .seedListRow()
                 }
             }
+        }
+    }
+
+    private func driftMessage(_ drift: LocalSyncService.Drift) -> String {
+        switch drift.reason {
+        case .changed: "Env Pilot과 파일 내용이 다릅니다"
+        case .deleted: "프로젝트에서 파일이 삭제되었습니다"
+        case .invalid: "파일 형식을 확인해야 합니다"
         }
     }
 

@@ -19,28 +19,33 @@ struct BundleChecks {
         repoA.gitRemoteURL = "git@github.com:me/blog.git"
         repoA.workspace = workspaceA
         source.ctx.insert(repoA)
-        let envA = EnvEnvironment(name: "Local", sortOrder: 0)
-        envA.repository = repoA
-        source.ctx.insert(envA)
         let targetA = Target(relativePath: ".")
+        targetA.outputPath = ".env"
         targetA.repository = repoA
         source.ctx.insert(targetA)
 
         try VariableService.create(key: "API_URL", value: "https://api.example.com",
-                                   environmentName: "Local", target: targetA, context: source.ctx)
+                                   environmentName: targetA.envFilePath, target: targetA, context: source.ctx)
         try VariableService.create(key: "API_TOKEN", value: "tok_s3cret_123", isSecret: true,
-                                   environmentName: "Local", target: targetA, context: source.ctx)
-        let ignored = Variable(key: "LEGACY_KEY", value: "", environmentName: "Local")
+                                   environmentName: targetA.envFilePath, target: targetA, context: source.ctx)
+        let ignored = Variable(key: "LEGACY_KEY", value: "", environmentName: targetA.envFilePath)
         ignored.isIgnored = true
         ignored.target = targetA
         source.ctx.insert(ignored)
+        let localTargetA = Target(relativePath: ".")
+        localTargetA.outputPath = ".env.local"
+        localTargetA.repository = repoA
+        source.ctx.insert(localTargetA)
+        try VariableService.create(key: "LOCAL_ONLY", value: "local",
+                                   environmentName: localTargetA.envFilePath,
+                                   target: localTargetA, context: source.ctx)
 
         // --- Payload: Secret 포함/미포함 ---
-        let payloadNoSecrets = BundleCodec.makePayload(repos: [repoA], environments: ["Local"], includeSecrets: false)
+        let payloadNoSecrets = BundleCodec.makePayload(repos: [repoA], environments: [], includeSecrets: false)
         let noSecretVars = payloadNoSecrets.repositories[0].targets[0].variables
         assert(noSecretVars.first { $0.key == "API_TOKEN" }?.value == "", "Secret 미포함 시 빈 값")
 
-        let payload = BundleCodec.makePayload(repos: [repoA], environments: ["Local"], includeSecrets: true)
+        let payload = BundleCodec.makePayload(repos: [repoA], environments: [], includeSecrets: true)
         assert(payload.repositories[0].targets[0].variables.first { $0.key == "API_TOKEN" }?.value
                == "tok_s3cret_123", "Secret 포함 시 Keychain 실값")
         assert(payload.repositories[0].targets[0].variables.first { $0.key == "LEGACY_KEY" }?.isIgnored == true,
@@ -71,7 +76,7 @@ struct BundleChecks {
             assert(false, "잘못된 파일은 실패해야 함")
         } catch {}
 
-        // --- 빈 Workspace로 import → Generate 동일성 (§3.14 수용 기준) ---
+        // --- 빈 Workspace로 import → 자동 동기화 내용 동일성 (§3.14 수용 기준) ---
         let dest = try makeContext()
         let workspaceB = Workspace()
         dest.ctx.insert(workspaceB)
@@ -83,8 +88,11 @@ struct BundleChecks {
 
         let repoB = (workspaceB.repositories ?? []).first!
         assert(repoB.uuid == repoA.uuid, "Repository uuid 유지 (Keychain 계정 키 안정성)")
-        assert(repoB.environmentNames == ["Local"], "Environment 보충 — Repository 소속")
-        let targetB = (repoB.targets ?? []).first!
+        assert(repoB.environmentNames.isEmpty, "신규 번들에는 논리 Environment 없음")
+        let targetB = (repoB.targets ?? []).first { $0.envFilePath == ".env" }!
+        let localTargetB = (repoB.targets ?? []).first { $0.envFilePath == ".env.local" }!
+        assert((localTargetB.variables ?? []).contains { $0.key == "LOCAL_ONLY" },
+               "같은 폴더의 실제 env 파일을 별도 binding으로 복원")
         assert((targetB.variables ?? []).first { $0.key == "LEGACY_KEY" }?.isIgnored == true, "무시 마커 이식")
         let secretB = (targetB.variables ?? []).first { $0.key == "API_TOKEN" }!
         assert(secretB.isSecret && secretB.value.isEmpty, "import된 Secret도 SwiftData에는 평문 없음")
@@ -95,8 +103,8 @@ struct BundleChecks {
                 ($0.key, VariableService.value(of: $0))
             }))
         }
-        assert(generated(targetA, "Local") == generated(targetB, "Local"),
-               "export → import → Generate 결과 동일")
+        assert(generated(targetA, targetA.envFilePath) == generated(targetB, targetB.envFilePath),
+               "export → import → 자동 동기화 내용 동일")
 
         // --- 재import: 충돌 정책 (§3.12 동일) ---
         try VariableService.updateValue(

@@ -1,24 +1,21 @@
 import SwiftUI
 import SwiftData
-import AppKit
 
-/// 변수 목록/편집 (PRD §3.3) + Import 진입점 (§3.12). (선택된 Target, 선택된 Environment) 기준.
+/// 선택한 실제 env 파일의 변수 목록/편집.
 struct VariablesView: View {
     let target: Target
-    let environmentName: String
     @Binding var pendingAddKey: String?   // Health에서 누락 키 클릭 시 프리필 (§3.8)
     @Environment(\.modelContext) private var context
     @State private var search = ""
     @State private var showAdd = false
     @State private var addSheetKey = ""
-    @State private var importPlan: (items: [ImportService.Item], warnings: [String])?
     @State private var errorMessage: String?
     @State private var snackbar: SeedSnackbarMessage?
     @State private var pendingExampleContent: String?   // §3.17 덮어쓰기 확인 대기 중인 내용
 
     private var variables: [Variable] {
         (target.variables ?? [])
-            .filter { $0.environmentName == environmentName && !$0.isIgnored }
+            .filter { $0.environmentName == target.envFilePath && !$0.isIgnored }
             .filter {
                 search.isEmpty
                     || $0.key.localizedCaseInsensitiveContains(search)
@@ -50,7 +47,7 @@ struct VariablesView: View {
                 ContentUnavailableView(
                     search.isEmpty ? "키가 없습니다" : "검색 결과 없음",
                     systemImage: "key",
-                    description: search.isEmpty ? Text("+ 로 추가하거나 기존 .env를 Import 하세요") : nil
+                    description: search.isEmpty ? Text("+ 버튼으로 변수를 추가하세요") : nil
                 )
             }
         }
@@ -58,11 +55,7 @@ struct VariablesView: View {
             Button("키 추가", systemImage: "plus") { addSheetKey = ""; showAdd = true }
                 .help("새 변수 추가 (⌘N)")
                 .keyboardShortcut("n", modifiers: .command)
-            // 보조 액션은 하나로 묶어 툴바 과밀 방지 — 상위 툴바(Scan/Generate/Export)와 공존
             Menu {
-                Button("Import — 기존 .env 가져오기", systemImage: "square.and.arrow.down") {
-                    pickImportFile()
-                }
                 Button("Example 생성 — \(target.examplePath)", systemImage: "doc.badge.gearshape") {
                     generateExample()
                 }
@@ -74,7 +67,7 @@ struct VariablesView: View {
             } label: {
                 Label("더 보기", systemImage: "ellipsis.circle")
             }
-            .help("Import · Example 생성 · 전체 복사")
+            .help("Example 생성 · 전체 복사")
         }
         .confirmationDialog("\(target.examplePath)이 이미 있고 내용이 다릅니다. 덮어쓸까요?",
                             isPresented: .constant(pendingExampleContent != nil), titleVisibility: .visible) {
@@ -85,13 +78,7 @@ struct VariablesView: View {
             Button("취소", role: .cancel) { pendingExampleContent = nil }
         }
         .sheet(isPresented: $showAdd) {
-            AddVariableSheet(target: target, environmentName: environmentName, initialKey: addSheetKey)
-        }
-        .sheet(isPresented: Binding(presence: $importPlan)) {
-            if let plan = importPlan {
-                ImportSheet(items: plan.items, warnings: plan.warnings,
-                            target: target, environmentName: environmentName)
-            }
+            AddVariableSheet(target: target, initialKey: addSheetKey)
         }
         .onChange(of: pendingAddKey, initial: true) {
             if let key = pendingAddKey {
@@ -104,10 +91,10 @@ struct VariablesView: View {
         .snackbar($snackbar)
     }
 
-    /// §3.20 — 현재 Target × Environment 전체를 지정 포맷으로 복사. Secret 포함 시 §3.16 자동 삭제.
+    /// §3.20 — 현재 env 파일 전체를 지정 포맷으로 복사. Secret 포함 시 §3.16 자동 삭제.
     private func copyAs(_ format: CopyFormat) {
         let all = (target.variables ?? [])
-            .filter { $0.environmentName == environmentName && !$0.isIgnored }
+            .filter { $0.environmentName == target.envFilePath && !$0.isIgnored }
         let hasSecret = all.contains(where: \.isSecret)
         Task {
             if hasSecret {
@@ -134,7 +121,7 @@ struct VariablesView: View {
         if hasAccess { rootURL.stopAccessingSecurityScopedResource() }
 
         if let existing, existing != content {
-            pendingExampleContent = content   // §3.4와 동일한 덮어쓰기 확인
+            pendingExampleContent = content
         } else {
             writeExample(content)
         }
@@ -150,33 +137,6 @@ struct VariablesView: View {
         }
     }
 
-    /// fileImporter는 조상 뷰(RepositoryDetailView)의 fileImporter와 충돌해 패널이 열리지 않고,
-    /// 숨김 파일인 .env가 목록에 보이지도 않아 NSOpenPanel을 직접 사용한다.
-    private func pickImportFile() {
-        let panel = NSOpenPanel()
-        panel.showsHiddenFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        if let repo = target.repository, let rootURL = RepositoryService.resolveBookmark(repo) {
-            panel.directoryURL = target.relativePath == "."
-                ? rootURL
-                : rootURL.appendingPathComponent(target.relativePath)
-        }
-        panel.begin { response in
-            guard response == .OK, let url = panel.url else { return }
-            importFile(url)
-        }
-    }
-
-    private func importFile(_ url: URL) {
-        let hasAccess = url.startAccessingSecurityScopedResource()
-        defer { if hasAccess { url.stopAccessingSecurityScopedResource() } }
-        guard let content = try? String(contentsOf: url, encoding: .utf8) else {
-            errorMessage = "파일을 읽을 수 없습니다: \(url.lastPathComponent)"
-            return
-        }
-        importPlan = ImportService.plan(content: content, target: target, environmentName: environmentName)
-    }
 }
 
 /// 한 변수의 행: 값 인라인 편집(Enter 또는 포커스 이탈 시 저장), Secret 마스킹(클릭 시 일시 표시), 복사.
@@ -252,10 +212,13 @@ private struct VariableRow: View {
         }
         .seedListRow()
         .onAppear {
-            valueText = variable.isSecret ? "" : variable.value
+            reloadValueFromModel()
             noteText = variable.note ?? ""
-            committedValue = valueText
             committedNote = noteText
+        }
+        .onChange(of: variable.updatedAt) {
+            guard valueText == committedValue else { return }
+            reloadValueFromModel()
         }
         .onChange(of: focusedField) { old, _ in
             // Enter 없이 다른 곳을 클릭해도 저장 (§3.3 인라인 편집)
@@ -271,6 +234,13 @@ private struct VariableRow: View {
             committedValue = valueText
             revealed = true
         }
+    }
+
+    private func reloadValueFromModel() {
+        valueText = variable.isSecret
+            ? (revealed ? VariableService.value(of: variable) : "")
+            : variable.value
+        committedValue = valueText
     }
 
     private func flashSaved() {
@@ -299,7 +269,6 @@ private struct VariableRow: View {
 
 private struct AddVariableSheet: View {
     let target: Target
-    let environmentName: String
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var key: String
@@ -308,15 +277,14 @@ private struct AddVariableSheet: View {
     @State private var isSecret = false
     @State private var errorMessage: String?
 
-    init(target: Target, environmentName: String, initialKey: String = "") {
+    init(target: Target, initialKey: String = "") {
         self.target = target
-        self.environmentName = environmentName
         _key = State(initialValue: initialKey)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: SeedSpacing.x5) {
-            Text("새 키 — \(environmentName)")
+            Text("새 키")
                 .font(SeedTypography.title)
                 .foregroundStyle(SeedColor.fgNeutral)
             SeedField("KEY") {
@@ -357,7 +325,7 @@ private struct AddVariableSheet: View {
                 value: value,
                 note: note.isEmpty ? nil : note,
                 isSecret: isSecret,
-                environmentName: environmentName,
+                environmentName: target.envFilePath,
                 target: target,
                 context: context
             )

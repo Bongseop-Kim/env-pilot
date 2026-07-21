@@ -41,7 +41,12 @@ enum VariableService {
 
     /// Secret이면 Keychain에서, 아니면 SwiftData에서 실값을 읽는다.
     static func value(of variable: Variable) -> String {
-        variable.isSecret ? (SecretStore.read(account: account(for: variable)) ?? "") : variable.value
+        valueIfAvailable(of: variable) ?? ""
+    }
+
+    /// 자동 파일 쓰기는 아직 동기화되지 않은 Secret을 빈 값과 구분해야 한다.
+    static func valueIfAvailable(of variable: Variable) -> String? {
+        variable.isSecret ? SecretStore.read(account: account(for: variable)) : variable.value
     }
 
     static func updateValue(_ variable: Variable, to newValue: String, context: ModelContext) throws {
@@ -74,6 +79,7 @@ enum VariableService {
             SecretStore.delete(account: account(for: variable))
         }
         variable.isSecret = isSecret
+        variable.updatedAt = Date()
         try context.save()
     }
 
@@ -106,7 +112,7 @@ enum VariableService {
             key: variable.key,
             environmentName: variable.environmentName,
             repositoryName: variable.target?.repository?.name ?? "",
-            targetPath: variable.target?.relativePath ?? "",
+            targetPath: variable.target?.envFilePath ?? "",
             oldValueHash: hash
         ))
     }

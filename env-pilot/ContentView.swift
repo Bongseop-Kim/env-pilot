@@ -16,7 +16,6 @@ struct ContentView: View {
     @Environment(\.modelContext) private var context
     @Query private var workspaces: [Workspace]
     @Query(sort: \Repository.createdAt) private var repositories: [Repository]
-    @AppStorage("selectedEnvironment") private var selectedEnvironment = "Local"
     @State private var selection: SidebarItem?
     @State private var showImporter = false
     @State private var showBundleImporter = false
@@ -24,15 +23,34 @@ struct ContentView: View {
     @State private var errorMessage: String?
     @State private var healthByRepo: [String: HealthStatus] = [:]
     @State private var repoPendingDelete: Repository?
-
-    // Environment는 Repository 소속 — 선택된 repo의 목록 기준
-    private var environmentNames: [String] {
-        selectedRepository?.environmentNames ?? []
-    }
+    @State private var outputWatchers: [String: OutputFileWatcher] = [:]
 
     private var selectedRepository: Repository? {
         guard case .repository(let id) = selection else { return nil }
         return repositories.first { $0.persistentModelID == id }
+    }
+
+    /// SwiftData/CloudKit 변경을 한 번의 값으로 관찰해 활성 로컬 파일을 자동 갱신한다.
+    private var syncRevision: Int {
+        var hash = Hasher()
+        for repo in repositories.sorted(by: { $0.uuid < $1.uuid }) {
+            hash.combine(repo.envContentRevision)
+        }
+        return hash.finalize()
+    }
+
+    /// 감시 대상 자체가 바뀔 때만 watcher를 다시 만든다.
+    private var watcherRevision: Int {
+        var hash = Hasher()
+        for repo in repositories.sorted(by: { $0.uuid < $1.uuid }) {
+            hash.combine(repo.uuid)
+            hash.combine(repo.localPathDisplay)
+            for target in (repo.targets ?? []).sorted(by: { $0.relativePath < $1.relativePath }) {
+                hash.combine(target.relativePath)
+                hash.combine(target.outputPath)
+            }
+        }
+        return hash.finalize()
     }
 
     var body: some View {
@@ -135,8 +153,7 @@ struct ContentView: View {
             switch selection {
             case .repository:
                 if let repo = selectedRepository {
-                    RepositoryDetailView(repo: repo, environmentName: selectedEnvironment,
-                                         environmentNames: environmentNames)
+                    RepositoryDetailView(repo: repo)
                         .id(repo.persistentModelID)
                 } else {
                     placeholder
@@ -154,16 +171,27 @@ struct ContentView: View {
         }
         .errorAlert($errorMessage)
         .task { refreshSidebarHealth() }
-        .onChange(of: environmentNames, initial: true) {
-            // Repository 전환·Environment 삭제 시 선택값 폴백
-            if !environmentNames.isEmpty && !environmentNames.contains(selectedEnvironment) {
-                selectedEnvironment = environmentNames.first!
-            }
-            refreshSidebarHealth()   // Environment 추가/삭제 즉시 사이드바 뱃지 반영
+        .onChange(of: syncRevision, initial: true) {
+            syncLocalFiles()
+        }
+        .onChange(of: watcherRevision, initial: true) {
+            restartOutputWatchers()
         }
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didBecomeActiveNotification)) { _ in
             env_pilotApp.dedupeAfterSync(context)  // §3.13: CloudKit 병합 후 Workspace 중복 정리
+            restartOutputWatchers()
+            syncLocalFiles()
+            refreshSidebarHealth()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .localEnvFileDidChange)) { notification in
+            guard let uuid = notification.object as? String,
+                  repositories.contains(where: { $0.uuid == uuid }) else { return }
+            refreshSidebarHealth()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .localSyncConfigurationDidChange)) { _ in
+            restartOutputWatchers()
+            syncLocalFiles()
             refreshSidebarHealth()
         }
     }
@@ -177,51 +205,92 @@ struct ContentView: View {
         for repo in repositories {
             guard let rootURL = RepositoryService.resolveBookmark(repo) else { continue }
             healthByRepo[repo.uuid] = HealthService.overall(
-                HealthService.check(repo: repo, rootURL: rootURL, environmentNames: repo.environmentNames))
+                HealthService.check(repo: repo, rootURL: rootURL))
         }
     }
 
     private func deleteRepo(_ repo: Repository) {
         if selection == .repository(repo.persistentModelID) { selection = nil }
+        LocalSyncService.clearLocalState(for: repo)
         context.delete(repo)
         try? context.save()
+    }
+
+    private func syncLocalFiles() {
+        for repo in repositories {
+            syncLocalFile(for: repo)
+        }
+    }
+
+    private func syncLocalFile(for repo: Repository) {
+        guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
+        _ = LocalSyncService.reconcile(
+            repo: repo,
+            rootURL: rootURL,
+            context: context
+        )
+    }
+
+    private func restartOutputWatchers() {
+        stopOutputWatchers()
+        let modelContext = context
+        var watchers: [String: OutputFileWatcher] = [:]
+        for repo in repositories {
+            guard let rootURL = RepositoryService.resolveBookmark(repo) else { continue }
+            let uuid = repo.uuid
+            watchers[uuid] = OutputFileWatcher(rootURL: rootURL, targets: repo.targets ?? []) {
+                _ = LocalSyncService.reconcile(
+                    repo: repo,
+                    rootURL: rootURL,
+                    context: modelContext
+                )
+                NotificationCenter.default.post(name: .localEnvFileDidChange, object: uuid)
+            }
+        }
+        outputWatchers = watchers
+    }
+
+    private func stopOutputWatchers() {
+        outputWatchers.values.forEach { $0.stop() }
+        outputWatchers.removeAll()
     }
 }
 
 struct RepositoryDetailView: View {
     let repo: Repository
-    let environmentName: String
-    let environmentNames: [String]
     @Environment(\.modelContext) private var context
-    @AppStorage("selectedEnvironment") private var selectedEnvironment = "Local"
-    @State private var selectedTargetPath: String = "."
+    @State private var selectedEnvFilePath = ""
     @State private var showRelinker = false
-    @State private var generatePlans: [GenerateService.Plan]?
-    @State private var generateRootURL: URL?
-    @State private var generateError: String?
+    @State private var syncError: String?
     @State private var tab: DetailTab = .variables
     @State private var diffs: [ExampleDiffService.Diff] = []
-    @State private var drifts: [GenerateService.Drift] = []
+    @State private var drifts: [LocalSyncService.Drift] = []
+    @State private var syncIssues: [String] = []
     @State private var hookInstalled: Bool?
-    @State private var driftImportPlan: (items: [ImportService.Item], warnings: [String], target: Target)?
+    @State private var driftImportPlan: (items: [ImportService.Item], warnings: [String],
+                                         missing: [Variable], target: Target)?
     @State private var healthItems: [HealthService.Item] = []
     @State private var safetyReports: [GitSafetyService.Report] = []
     @State private var claudeEnvDenied: Bool?
     @State private var agentsRuleInstalled = false
-    @State private var scanCandidates: [MonorepoScanner.Candidate]?
     @State private var pendingAddKey: String?
     @State private var showExport = false
-    @State private var showEnvironmentsEditor = false
 
     enum DetailTab { case variables, accounts, health, gitChanges }
 
     private var isLinked: Bool { RepositoryService.resolveBookmark(repo) != nil }
-    private var targets: [Target] { (repo.targets ?? []).sorted { $0.relativePath < $1.relativePath } }
+    private var targets: [Target] { (repo.targets ?? []).sorted { $0.envFilePath < $1.envFilePath } }
     private var selectedTarget: Target? {
-        targets.first { $0.relativePath == selectedTargetPath } ?? targets.first
+        targets.first { $0.envFilePath == selectedEnvFilePath } ?? targets.first
     }
-    private var diffCount: Int { diffs.reduce(0) { $0 + $1.count } + drifts.count }
-
+    private var selectedDrift: LocalSyncService.Drift? {
+        guard let selectedTarget else { return nil }
+        return drifts.first { $0.target.envFilePath == selectedTarget.envFilePath }
+    }
+    private var selectedIssue: String? {
+        guard let selectedTarget else { return nil }
+        return syncIssues.first { $0.hasPrefix(selectedTarget.envFilePath + ":") }
+    }
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -229,24 +298,16 @@ struct RepositoryDetailView: View {
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .toolbar {
-            // 리포 수준 보조 액션 그룹 — 탭 수준 액션(+/⋯)과 급을 구분
-            ToolbarItemGroup {
-                Button("Scan", systemImage: "viewfinder") { scanMonorepo(auto: false) }
-                    .help("Scan — Monorepo Target 탐색 및 .env.example 변경 감지 (⌘R)")
-                    .keyboardShortcut("r", modifiers: .command)
-                Button("Export", systemImage: "square.and.arrow.up") { showExport = true }
-                    .help("Export — .envide 번들로 내보내기 (다른 Mac·팀원과 공유)")
-            }
-            // 주 액션 — 이 앱의 존재 이유이므로 prominent로 격상
             ToolbarItem {
-                Button("Generate") { prepareGenerate() }
-                    .buttonStyle(.borderedProminent)
-                    .help("Generate — \(environmentName) 환경 기준으로 .env 파일 생성 (⌘G)")
-                    .keyboardShortcut("g", modifiers: .command)
+                Menu {
+                    Button(".env 파일 다시 찾기", systemImage: "viewfinder") { refreshEnvFiles() }
+                        .keyboardShortcut("r", modifiers: .command)
+                    Button("백업 및 공유…", systemImage: "square.and.arrow.up") { showExport = true }
+                } label: {
+                    Label("Repository 작업", systemImage: "ellipsis.circle")
+                }
+                .help(".env 파일 다시 찾기 · .envide 백업 및 공유")
             }
-        }
-        .sheet(isPresented: $showEnvironmentsEditor) {
-            EnvironmentsEditor(repo: repo)
         }
         .sheet(isPresented: $showExport) {
             if let workspace = repo.workspace {
@@ -255,44 +316,44 @@ struct RepositoryDetailView: View {
         }
         .task(id: repo.uuid) {
             refreshDiffs()
+            normalizeSelectedFile()
             refreshHealth()
-            autoScanIfFirstVisit()
         }
-        .onChange(of: environmentNames) {
-            refreshHealth()   // Environment 추가/삭제 즉시 Health 탭 반영
+        .onChange(of: repo.envContentRevision) {
+            refreshDiffs()
+            normalizeSelectedFile()
+            refreshHealth()
         }
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshDiffs()   // git pull 후 앱 전환 시 감지 (§3.6)
             refreshHealth()
         }
-        .sheet(isPresented: Binding(presence: $scanCandidates), onDismiss: {
+        .onReceive(NotificationCenter.default.publisher(for: .localEnvFileDidChange)) { notification in
+            guard notification.object as? String == repo.uuid else { return }
             refreshDiffs()
-        }) {
-            if let candidates = scanCandidates {
-                TargetScanSheet(repo: repo, candidates: candidates)
-            }
+            refreshHealth()
         }
         .sheet(isPresented: Binding(presence: $driftImportPlan), onDismiss: {
             refreshDiffs()
         }) {
             if let plan = driftImportPlan {
                 ImportSheet(items: plan.items, warnings: plan.warnings,
-                            target: plan.target, environmentName: environmentName)
+                            target: plan.target,
+                            newKeysAreSecret: true, missingVariables: plan.missing) {
+                    applyPilotValue(for: plan.target)
+                }
             }
         }
-        .sheet(isPresented: Binding(presence: $generatePlans), onDismiss: {
-            refreshHealth()
-            refreshDiffs()   // Generate 후 drift 기준점 갱신 반영 (§3.18)
-        }) {
-            if let plans = generatePlans, let rootURL = generateRootURL {
-                GenerateSheet(repo: repo, plans: plans, rootURL: rootURL, environmentName: environmentName)
-            }
-        }
-        .errorAlert($generateError)
+        .errorAlert($syncError)
         .fileImporter(isPresented: $showRelinker, allowedContentTypes: [.folder]) { result in
             guard case .success(let url) = result else { return }
-            try? RepositoryService.relink(repo: repo, folderURL: url, context: context)
+            do {
+                try RepositoryService.relink(repo: repo, folderURL: url, context: context)
+                NotificationCenter.default.post(name: .localSyncConfigurationDidChange, object: repo.uuid)
+            } catch {
+                syncError = error.localizedDescription
+            }
         }
     }
 
@@ -300,12 +361,45 @@ struct RepositoryDetailView: View {
         switch tab {
         case .variables:
             if let target = selectedTarget {
-                VariablesView(target: target, environmentName: environmentName,
-                              pendingAddKey: $pendingAddKey)
-                    .id("\(target.persistentModelID)-\(environmentName)")
+                VStack(spacing: 0) {
+                    if let drift = selectedDrift {
+                        HStack(spacing: SeedSpacing.x2) {
+                            StatusLabel(driftMessage(drift), systemImage: "exclamationmark.triangle",
+                                        tone: .warning)
+                            Spacer()
+                            Button("동기화…", systemImage: "arrow.triangle.2.circlepath") {
+                                tab = .gitChanges
+                            }
+                            .buttonStyle(.seed(.neutralWeak, size: .xsmall))
+                        }
+                        .padding(.horizontal, SeedSpacing.x4)
+                        .padding(.vertical, SeedSpacing.x2)
+                        SeedDivider()
+                    } else if let issue = selectedIssue {
+                        HStack(spacing: SeedSpacing.x2) {
+                            StatusLabel(issue, systemImage: "exclamationmark.triangle", tone: .warning)
+                                .lineLimit(1)
+                                .help(issue)
+                            Spacer()
+                            Button("Health에서 확인") { tab = .health }
+                                .buttonStyle(.seed(.neutralWeak, size: .xsmall))
+                        }
+                        .padding(.horizontal, SeedSpacing.x4)
+                        .padding(.vertical, SeedSpacing.x2)
+                        SeedDivider()
+                    }
+                    VariablesView(target: target, pendingAddKey: $pendingAddKey)
+                        .id(target.persistentModelID)
+                }
             } else {
-                Text("Target이 없습니다").foregroundStyle(SeedColor.fgNeutralMuted)
-                    .frame(maxHeight: .infinity)
+                ContentUnavailableView {
+                    Label(".env 파일을 찾지 못했습니다", systemImage: "doc.text.magnifyingglass")
+                } description: {
+                    Text("프로젝트에 .env 또는 .env.* 파일을 추가한 뒤 다시 찾으세요")
+                } actions: {
+                    Button(".env 파일 다시 찾기", action: refreshEnvFiles)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         case .accounts:
             CredentialsView(repo: repo)
@@ -316,10 +410,8 @@ struct RepositoryDetailView: View {
                 hookInstalled: hookInstalled,
                 claudeEnvDenied: claudeEnvDenied,
                 agentsRuleInstalled: agentsRuleInstalled,
-                onSelectMissingKey: { targetPath, environment, key in
-                    // 누락 키 클릭 → 해당 Variable 입력으로 이동 (§3.8 수용 기준)
-                    selectedTargetPath = targetPath
-                    selectedEnvironment = environment
+                onSelectMissingKey: { filePath, key in
+                    selectedEnvFilePath = filePath
                     tab = .variables
                     pendingAddKey = key
                 },
@@ -327,6 +419,7 @@ struct RepositoryDetailView: View {
                     guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
                     try? GitSafetyService.addToGitignore(line: fileName, rootURL: rootURL)
                     refreshHealth()
+                    refreshDiffs()
                 },
                 onFixPermissions: { report in
                     guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
@@ -340,36 +433,32 @@ struct RepositoryDetailView: View {
                     guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
                     let fileNames = targets.map(\.outputPath)
                     do { try GitSafetyService.addClaudeEnvDenyRules(fileNames: fileNames, rootURL: rootURL) }
-                    catch { generateError = error.localizedDescription }
+                    catch { syncError = error.localizedDescription }
                     refreshHealth()
                 },
                 onAddAgentsRule: {
                     guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
                     do { try GitSafetyService.addAgentsMdEnvRule(rootURL: rootURL) }
-                    catch { generateError = error.localizedDescription }
+                    catch { syncError = error.localizedDescription }
                     refreshHealth()
                 }
             )
         case .gitChanges:
             GitChangesView(
-                diffs: diffs, drifts: drifts, environmentNames: environmentNames,
+                diffs: diffs, drifts: drifts,
                 onChanged: { refreshDiffs(); refreshHealth() },
                 onImportDrift: { drift in
-                    // §3.18 가져오기 — 현재 파일을 기준점으로 인정하고 §3.12 임포트 플로우
                     guard let content = drift.fileContent else { return }
-                    drift.target.outputHash = GenerateService.sha256(content)
-                    try? context.save()
                     let plan = ImportService.plan(content: content, target: drift.target,
-                                                  environmentName: environmentName)
-                    driftImportPlan = (plan.items, plan.warnings, drift.target)
-                    refreshDiffs()
+                                                  environmentName: drift.target.envFilePath)
+                    let fileKeys = Set(EnvParser.parse(content).entries.map(\.key))
+                    let missing = (drift.target.variables ?? []).filter {
+                        $0.environmentName == drift.target.envFilePath
+                            && !$0.isIgnored && !fileKeys.contains($0.key)
+                    }
+                    driftImportPlan = (plan.items, plan.warnings, missing, drift.target)
                 },
-                onOverwriteDrift: { _ in prepareGenerate() },  // §3.4 재생성 플로우 재사용
-                onIgnoreDrift: { drift in
-                    drift.target.outputHash = drift.fileContent.map { GenerateService.sha256($0) }
-                    try? context.save()
-                    refreshDiffs()
-                }
+                onOverwriteDrift: { applyPilotValue(for: $0.target) }
             )
         }
     }
@@ -381,29 +470,38 @@ struct RepositoryDetailView: View {
             if install { try GitSafetyService.installHook(rootURL: rootURL) }
             else { try GitSafetyService.removeHook(rootURL: rootURL) }
         } catch {
-            generateError = error.localizedDescription
+            syncError = error.localizedDescription
         }
         refreshHealth()
     }
 
-    private func prepareGenerate() {
-        guard let rootURL = RepositoryService.resolveBookmark(repo) else {
-            generateError = "폴더에 접근할 수 없습니다. 경로를 다시 연결하세요."
-            return
-        }
-        generateRootURL = rootURL
-        generatePlans = GenerateService.makePlans(repo: repo, rootURL: rootURL, environmentName: environmentName)
-    }
-
     private func refreshDiffs() {
         guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
+        let sync = LocalSyncService.reconcile(repo: repo, rootURL: rootURL, context: context)
+        drifts = sync.drifts
+        syncIssues = sync.issues
         diffs = ExampleDiffService.scan(repo: repo, rootURL: rootURL, context: context)
-        drifts = GenerateService.checkDrift(repo: repo, rootURL: rootURL)  // §3.18 — §3.6과 동일 시점
+    }
+
+    private func refreshEnvFiles() {
+        refreshDiffs()
+        normalizeSelectedFile()
+        refreshHealth()
+        NotificationCenter.default.post(name: .localSyncConfigurationDidChange, object: repo.uuid)
+    }
+
+    private func applyPilotValue(for target: Target) {
+        guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
+        if let error = LocalSyncService.forceApply(target: target, rootURL: rootURL) {
+            syncError = error
+        }
+        refreshDiffs()
+        refreshHealth()
     }
 
     private func refreshHealth() {
         guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
-        healthItems = HealthService.check(repo: repo, rootURL: rootURL, environmentNames: environmentNames)
+        healthItems = HealthService.check(repo: repo, rootURL: rootURL)
         safetyReports = GitSafetyService.check(repo: repo, rootURL: rootURL)
         claudeEnvDenied = GitSafetyService.claudeEnvDenyStatus(rootURL: rootURL)
         agentsRuleInstalled = GitSafetyService.agentsMdEnvRuleStatus(rootURL: rootURL)
@@ -412,31 +510,25 @@ struct RepositoryDetailView: View {
             : nil
     }
 
-    /// Monorepo 스캔: 기존 Target을 제외한 신규 후보만 시트로 제안 (§3.5).
-    private func scanMonorepo(auto: Bool) {
-        guard let rootURL = RepositoryService.resolveBookmark(repo) else {
-            if !auto { generateError = "폴더에 접근할 수 없습니다. 경로를 다시 연결하세요." }
+    private func normalizeSelectedFile() {
+        guard !targets.isEmpty else {
+            selectedEnvFilePath = ""
             return
         }
-        let existingPaths = Set(targets.map(\.relativePath))
-        let candidates = MonorepoScanner.scan(rootURL: rootURL)
-        // 이미 등록된 Target도 시트에 "추가됨"으로 표시 — 신규 후보가 있을 때만 시트를 띄운다
-        if candidates.contains(where: { !existingPaths.contains($0.relativePath) }) {
-            scanCandidates = candidates
-        } else if !auto {
-            generateError = "새로운 Monorepo Target 후보가 없습니다."
+        if !targets.contains(where: { $0.envFilePath == selectedEnvFilePath }) {
+            selectedEnvFilePath = targets[0].envFilePath
         }
     }
 
-    /// Repository 등록 직후 첫 방문 시 1회 자동 스캔 (§3.5 "등록 시").
-    private func autoScanIfFirstVisit() {
-        let key = "monorepoScanned.\(repo.uuid)"
-        guard !UserDefaults.standard.bool(forKey: key) else { return }
-        UserDefaults.standard.set(true, forKey: key)
-        scanMonorepo(auto: true)
+    private func driftMessage(_ drift: LocalSyncService.Drift) -> String {
+        switch drift.reason {
+        case .changed: "파일 내용과 Env Pilot 값이 다릅니다"
+        case .deleted: "프로젝트에서 파일이 삭제되었습니다"
+        case .invalid: "파일 형식을 읽을 수 없습니다"
+        }
     }
 
-    /// 상단 행: 스코프 선택자(Target·Environment)·diff 뱃지·경로. 탭 행: 탭만 — 탭의 하단 스트로크가 콘텐츠 경계선.
+    /// Variables에서만 실제 env 파일을 선택한다. 동기화 액션은 콘텐츠의 diff 배너에 둔다.
     private var header: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: SeedSpacing.x2) {
@@ -448,38 +540,23 @@ struct RepositoryDetailView: View {
                             .buttonStyle(.seed(.neutralWeak, size: .xsmall))
                     }
                 }
-                HStack(spacing: SeedSpacing.x2) {
-                    // 항상 보이는 Environment를 왼쪽에 고정, 조건부 Target은 오른쪽 — 레이아웃 흔들림 방지
-                    if !environmentNames.isEmpty {
-                        Picker("Environment", selection: $selectedEnvironment) {
-                            ForEach(environmentNames, id: \.self) { Text($0).tag($0) }
+                if tab == .variables, let target = selectedTarget {
+                    HStack(spacing: SeedSpacing.x2) {
+                        if targets.count > 1 {
+                            Picker("Env 파일", selection: $selectedEnvFilePath) {
+                                ForEach(targets, id: \.envFilePath) { target in
+                                    Text(target.envFilePath).tag(target.envFilePath)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .fixedSize()
+                        } else {
+                            Label(target.envFilePath, systemImage: "doc.text")
+                                .font(SeedTypography.label)
+                                .fontDesign(.monospaced)
                         }
-                        .pickerStyle(.menu)
-                        .fixedSize()
-                        .help("Environment 전환 — Variables/Health/Generate가 이 환경 기준으로 동작합니다")
+                        Spacer()
                     }
-                    Button("Environment 편집", systemImage: "slider.horizontal.3") {
-                        showEnvironmentsEditor = true
-                    }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                    .help("이 Repository의 Environment 목록 편집 (추가/삭제/순서)")
-                    if tab == .variables && targets.count > 1 {
-                        Picker("Target", selection: $selectedTargetPath) {
-                            ForEach(targets, id: \.relativePath) { Text($0.relativePath).tag($0.relativePath) }
-                        }
-                        .fixedSize()
-                    }
-                    if diffCount > 0 {
-                        SeedBadge("Git 변경 \(diffCount)", tone: .brand)
-                            .help("처리 대기 중인 Git 변경 \(diffCount)건")
-                    }
-                    Spacer()
-                    Text(repo.gitRemoteURL ?? repo.localPathDisplay ?? "")
-                        .font(SeedTypography.label)
-                        .foregroundStyle(SeedColor.fgNeutralMuted)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
                 }
             }
             .padding(.horizontal, SeedSpacing.x4)
@@ -490,7 +567,7 @@ struct RepositoryDetailView: View {
                 (DetailTab.variables, "Variables"),
                 (DetailTab.accounts, "Accounts"),
                 (DetailTab.health, "Health"),
-                (DetailTab.gitChanges, "Git Changes"),
+                (DetailTab.gitChanges, "Changes"),
             ])
             .padding(.horizontal, SeedSpacing.x4)
             .frame(maxWidth: .infinity, alignment: .leading)

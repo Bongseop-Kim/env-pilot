@@ -82,7 +82,7 @@ struct BundleImportSheet: View {
     private var preview: some View {
         List {
             if items.isEmpty {
-                Text("변경할 항목이 없습니다 — 구조(Repository/Target/Environment)만 병합됩니다.")
+                Text("변경할 항목이 없습니다 — Repository와 env 파일 구조만 병합됩니다.")
                     .foregroundStyle(SeedColor.fgNeutralMuted)
             }
             ForEach(grouped, id: \.group) { section in

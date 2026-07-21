@@ -7,7 +7,7 @@ import SwiftData
 enum GitSafetyService {
 
     struct Report: Identifiable {
-        let targetPath: String
+        let targetPath: String           // 실제 env 파일의 Repository 상대 경로
         let outputRelativePath: String   // repo 루트 기준, 예: "apps/shop/.env.local"
         let outputExists: Bool
         let isIgnored: Bool
@@ -28,7 +28,7 @@ enum GitSafetyService {
         let rootPatterns = gitignorePatterns(at: rootURL)
 
         return (repo.targets ?? [])
-            .sorted { $0.relativePath < $1.relativePath }
+            .sorted { $0.envFilePath < $1.envFilePath }
             .map { target in
                 let isRoot = target.relativePath == "."
                 let dir = isRoot ? rootURL : rootURL.appendingPathComponent(target.relativePath)
@@ -54,7 +54,7 @@ enum GitSafetyService {
                     permissionsOK = perms.intValue == 0o600
                 }
 
-                return Report(targetPath: target.relativePath, outputRelativePath: relativePath,
+                return Report(targetPath: target.envFilePath, outputRelativePath: relativePath,
                               outputExists: exists, isIgnored: ignored, isTracked: tracked,
                               permissionsOK: permissionsOK)
             }

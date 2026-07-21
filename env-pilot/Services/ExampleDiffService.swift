@@ -9,12 +9,12 @@ enum ExampleDiffService {
         let target: Target
         let addedKeys: [String]
         let removedKeys: [String]
-        var id: String { target.relativePath }
+        var id: String { target.envFilePath }
         var count: Int { addedKeys.count + removedKeys.count }
     }
 
-    enum AddedAction { case addToAllEnvironments, ignore }
-    enum RemovedAction { case deleteFromAllEnvironments, ignore }
+    enum AddedAction { case addToFile, ignore }
+    enum RemovedAction { case deleteFromFile, ignore }
 
     /// 모든 Target의 example을 스냅샷과 비교. 스냅샷 없는 최초 스캔은 저장만 하고 diff를 만들지 않는다 (§3.6).
     static func scan(repo: Repository, rootURL: URL, context: ModelContext) -> [Diff] {
@@ -50,21 +50,21 @@ enum ExampleDiffService {
         Set(EnvParser.parse(content).entries.map(\.key))
     }
 
-    /// 추가된 키 처리: 모든 Environment에 빈 값 생성 또는 무시 마커 (§3.7).
+    /// 추가된 키 처리: 해당 실제 env 파일에 빈 값 생성 또는 무시 마커 (§3.7).
     static func resolveAdded(key: String, action: AddedAction, target: Target,
-                             environmentNames: [String], context: ModelContext) throws {
-        for environmentName in environmentNames {
-            let exists = (target.variables ?? []).contains {
-                $0.key == key && $0.environmentName == environmentName
-            }
-            guard !exists else { continue }
+                             context: ModelContext) throws {
+        let scope = target.envFilePath
+        let exists = (target.variables ?? []).contains {
+            $0.key == key && $0.environmentName == scope
+        }
+        if !exists {
             switch action {
-            case .addToAllEnvironments:
-                try VariableService.create(key: key, value: "", environmentName: environmentName,
+            case .addToFile:
+                try VariableService.create(key: key, value: "", environmentName: scope,
                                            target: target, context: context)
             case .ignore:
                 // 무시 마커 — Health(§3.8)가 "무시 키 제외" 판정에 사용. History 기록 없음.
-                let marker = Variable(key: key, value: "", environmentName: environmentName)
+                let marker = Variable(key: key, value: "", environmentName: scope)
                 marker.isIgnored = true
                 marker.target = target
                 context.insert(marker)
@@ -74,11 +74,13 @@ enum ExampleDiffService {
         try context.save()
     }
 
-    /// 삭제된 키 처리: 전 Environment에서 삭제 또는 무시 (§3.7).
+    /// 삭제된 키 처리: 해당 실제 env 파일에서 삭제 또는 무시 (§3.7).
     static func resolveRemoved(key: String, action: RemovedAction, target: Target,
                                context: ModelContext) throws {
-        if action == .deleteFromAllEnvironments {
-            for variable in (target.variables ?? []).filter({ $0.key == key }) {
+        if action == .deleteFromFile {
+            for variable in (target.variables ?? []).filter({
+                $0.key == key && $0.environmentName == target.envFilePath
+            }) {
                 try VariableService.delete(variable, context: context)
             }
         }
@@ -88,10 +90,12 @@ enum ExampleDiffService {
 
     // MARK: - example 역생성 (§3.17)
 
-    /// Variables로부터 example 내용 생성 — 전 Environment 합집합 키(무시 키 제외), 값은 빈 문자열,
+    /// Variables로부터 example 내용 생성 — 선택 파일의 키(무시 키 제외), 값은 빈 문자열,
     /// note가 있으면 위 줄에 주석. 키 정렬·`KEY=` 형식은 §3.2 직렬화와 동일.
     static func exampleContent(for target: Target) -> String {
-        let variables = (target.variables ?? []).filter { !$0.isIgnored }
+        let variables = (target.variables ?? []).filter {
+            $0.environmentName == target.envFilePath && !$0.isIgnored
+        }
         var noteByKey: [String: String] = [:]
         for variable in variables where noteByKey[variable.key] == nil {
             if let note = variable.note, !note.isEmpty { noteByKey[variable.key] = note }

@@ -1,530 +1,289 @@
-# Env IDE — PRD
+# Env Pilot — PRD
 
 > **Environment Variables deserve an IDE.**
 
-macOS 전용, 개인 개발자를 위한 Environment IDE. AI 주도 개발용 스펙 문서 — 이 문서만으로 구현이 가능하도록 데이터 모델, 동작, 수용 기준을 명시한다.
+macOS 전용 개인 개발자용 `.env` 관리 앱이다. 논리적인 Environment를 앱 안에서 새로 구성하지 않고, 프로젝트에 실제로 존재하는 env 파일과 그 경로를 그대로 관리한다.
 
 ---
 
-## 1. 개요
+## 1. 제품 원칙
 
-### 1.1 비전
+### 1.1 실제 파일이 기준이다
 
-Env IDE는 Secret Manager가 아니다. 개인 개발자가 프로젝트의 Environment를 설계하고 관리하는 **IDE**다. Git을 이해하고, Monorepo를 이해하며, `.env.example` 변경을 추적하고, 필요한 `.env`를 생성한다.
+- `.env`, `.env.local`, `.env.production`, `apps/api/.env`처럼 프로젝트에 존재하는 파일 하나가 하나의 관리 단위다.
+- `Local`, `Development`, `Production` 같은 논리 Environment 선택기는 제공하지 않는다.
+- 사용자가 Target이나 출력 경로를 미리 설정하지 않는다.
+- 앱은 `.env.local`을 기본값으로 가정하거나 빈 파일을 임의로 만들지 않는다.
+- 동일 폴더에 여러 env 파일이 있으면 각각 독립적으로 관리한다.
 
-### 1.2 해결하는 문제
+### 1.2 자동화는 비파괴적이어야 한다
 
-- 집 ↔ 회사 Mac 간 `.env` 복사 (AirDrop, 메신저, 최신 버전 혼란)
-- 프로젝트/Monorepo Target마다 `.env` 수동 생성·관리
-- `.env.example` 변경 후 누락 Key 수동 대조
-- `.env`가 Git에 커밋되는 사고
+- 최초 연결에서는 실제 파일의 키와 값을 우선하여 가져온다.
+- 한쪽만 변경된 경우 안전하게 자동 반영한다.
+- 파일 삭제, 양쪽 동시 변경, 파싱 실패는 자동 덮어쓰기하지 않고 사용자가 방향을 선택한다.
+- diff가 없으면 동기화 버튼이나 불필요한 상태 메시지를 보여주지 않는다.
 
-### 1.3 타겟 유저
+### 1.3 Non-goals
 
-React / React Native / Next.js / Node.js / FastAPI / NestJS를 쓰는 **개인 개발자**. 특히 여러 Mac 사용, 사이드 프로젝트 다수 운영, Monorepo 사용자.
-
-### 1.4 포지셔닝
-
-| 서비스 | 목적 |
-|---|---|
-| 1Password / Bitwarden | 비밀번호 저장 |
-| Infisical | 팀 Secret 관리 |
-| Doppler | CI/CD Secret |
-| **Env IDE** | **개인 개발자의 Environment 관리** |
-
-### 1.5 Non-goals
-
-- 자체 백엔드/서버 없음 (FastAPI, Supabase 미사용 — Sync는 iCloud + 파일 공유로 해결)
-- 팀 협업, 실시간 공동 편집
-- AI 코드 분석, AST 파싱
-- VSCode Extension, CLI
-- CI/CD 연동, 외부 Secret Manager 연동
+- 앱 내부의 Environment 설계 및 전환
+- 앱이 정한 출력 경로로 env 파일 자동 생성
+- 팀용 Secret Manager, 자체 서버, 실시간 공동 편집
+- CI/CD 및 외부 Secret Manager 연동
 
 ---
 
 ## 2. 도메인 모델
 
-### 2.1 계층 구조
+### 2.1 사용자 관점
 
-```
+```text
 Workspace
-└── Environment (Local / Development / Staging / Production …)
-└── Repository (Git 저장소)
-    └── Target (모노레포 하위 패키지, 예: apps/shop)
-        └── EnvBinding (examplePath ↔ outputPath)
-        └── Variable (Environment별 key=value)
+└── Repository
+    ├── .env
+    │   └── Variable (key=value)
+    ├── .env.local
+    │   └── Variable (key=value)
+    └── apps/api/.env.production
+        └── Variable (key=value)
 ```
 
-- **Environment는 Workspace 수준의 전역 개념.** 상단 셀렉터에서 선택하면 앱 전체가 해당 Environment 기준으로 표시된다.
-- **실제 데이터 저장은 Repository → Target → Environment → Variable** 경로로 귀속된다.
+변수를 식별하는 기준은 `(Repository, 실제 env 파일 경로, key)`다.
 
-### 2.2 SwiftData 엔티티
+### 2.2 구현 모델
 
-CloudKit 동기화를 전제로 하므로 **모든 프로퍼티는 optional 또는 기본값 필수, `@Attribute(.unique)` 사용 불가** — 유니크 제약은 애플리케이션 레벨에서 강제한다.
+기존 SwiftData 스키마와 저장 데이터의 호환성을 위해 클래스 이름 `Target`과 필드 `environmentName`은 유지한다. 사용자에게는 노출하지 않는다.
+
+- `Target` 하나는 실제 env 파일 하나를 뜻한다.
+- `Target.relativePath + Target.outputPath`가 Repository 기준 실제 파일 경로다.
+- `Target.envFilePath`가 화면, 동기화 체크포인트, Variable scope의 공통 식별자다.
+- `Variable.environmentName`에는 논리 Environment가 아니라 `Target.envFilePath`를 저장한다.
+- 기존 `EnvEnvironment` 데이터는 마이그레이션 및 구버전 번들 호환 목적으로만 남고 신규 UI와 동기화에서는 사용하지 않는다.
 
 ```swift
-@Model final class Workspace {
-    var name: String = "Default"
-    var createdAt: Date = Date()
-    @Relationship(deleteRule: .cascade) var environments: [EnvEnvironment]? = []
-    @Relationship(deleteRule: .cascade) var repositories: [Repository]? = []
-}
-
-@Model final class EnvEnvironment {   // 'Environment'는 SwiftUI와 충돌하므로 접두어 사용
-    var name: String = ""             // "Local", "Development", "Staging", "Production"
-    var sortOrder: Int = 0
-    var workspace: Workspace?
-}
-
 @Model final class Repository {
-    var name: String = ""
-    var gitRemoteURL: String? = nil        // 예: git@github.com:me/blog.git
-    var defaultBranch: String? = nil       // 예: main
-    var localPathBookmark: Data? = nil     // 보안 스코프 북마크 — 기기별 값, CloudKit 동기화 제외 필드로 취급
-    var localPathDisplay: String? = nil    // UI 표시용 경로 문자열 (동기화됨)
-    var createdAt: Date = Date()
-    var workspace: Workspace?
-    @Relationship(deleteRule: .cascade) var targets: [Target]? = []
+    var uuid: String
+    var name: String
+    var localPathDisplay: String?
+    var targets: [Target]?
 }
 
 @Model final class Target {
-    var relativePath: String = ""          // 루트 Target은 "." / 모노레포는 "apps/shop"
-    var examplePath: String = ".env.example"   // Target 기준 상대 경로
-    var outputPath: String = ".env.local"      // Target 기준 상대 경로
-    var exampleSnapshot: String? = nil     // 마지막으로 확인한 example 파일 내용 (diff 기준점)
-    var outputHash: String? = nil          // 마지막 Generate 출력의 SHA256 (§3.18 drift 기준점)
-    var repository: Repository?
-    @Relationship(deleteRule: .cascade) var variables: [Variable]? = []
+    var relativePath: String       // "." 또는 "apps/api"
+    var outputPath: String         // ".env", ".env.local", ".env.production"
+    var examplePath: String        // 같은 폴더의 ".env.example"
+    var variables: [Variable]?
+
+    var envFilePath: String        // 예: "apps/api/.env.production"
 }
 
 @Model final class Variable {
-    var key: String = ""
-    var value: String = ""                 // isSecret == true면 빈 문자열, 실값은 Keychain
-    var note: String? = nil                // 설명
-    var isSecret: Bool = false
-    var isIgnored: Bool = false            // example diff에서 "무시" 선택한 키
-    var environmentName: String = ""       // EnvEnvironment.name 참조 (문자열 — 관계 대신 단순 참조)
-    var updatedAt: Date = Date()
+    var key: String
+    var value: String
+    var isSecret: Bool
+    var environmentName: String    // 내부 호환 필드: envFilePath 저장
     var target: Target?
-}
-
-@Model final class HistoryEntry {
-    var timestamp: Date = Date()
-    var action: String = ""                // "created" | "updated" | "deleted"
-    var key: String = ""
-    var environmentName: String = ""
-    var repositoryName: String = ""
-    var targetPath: String = ""
-    var oldValueHash: String? = nil        // SHA256 앞 8자 — 값 자체는 저장하지 않음
 }
 ```
 
-**애플리케이션 레벨 유니크 제약:**
-- `Variable`: (target, environmentName, key) 조합 유일. 저장 전 중복 검사, 위반 시 저장 거부 + UI 에러.
-- `EnvEnvironment`: workspace 내 name 유일.
-- `Target`: repository 내 relativePath 유일.
+### 2.3 Secret 저장
 
-**Secret 저장:**
-- `isSecret == true`인 Variable의 실값은 Keychain에 저장. Keychain 계정 키: `"envide.{repository.persistentID}.{target.relativePath}.{environmentName}.{key}"`.
-- Keychain 아이템은 `kSecAttrSynchronizable = true`로 저장해 iCloud Keychain으로 동기화한다.
-- SwiftData의 `value`는 빈 문자열 유지 (CloudKit에 평문 Secret이 올라가지 않도록).
+- Secret 실값은 SwiftData나 CloudKit에 저장하지 않고 Keychain에 저장한다.
+- Keychain 항목은 Repository UUID, 실제 파일 scope, key를 조합해 구분한다.
+- `kSecAttrSynchronizable = true`를 사용해 iCloud Keychain으로 동기화한다.
+- Secret 표시 및 복사 시 사용자 인증을 요구할 수 있다.
 
 ---
 
-## 3. 기능 스펙
+## 3. 핵심 기능
 
-각 기능은 **동작 / 수용 기준 / 엣지 케이스** 순으로 기술한다.
+### 3.1 Repository 등록
 
----
+1. 사용자가 프로젝트 폴더를 선택한다.
+2. 보안 스코프 북마크와 표시 경로를 저장한다.
+3. Git remote와 branch를 읽을 수 있으면 함께 저장한다.
+4. 실제 env 파일을 즉시 탐색하고 내용을 가져온다.
+5. env 파일이 없으면 관리 항목을 만들지 않는다.
 
-### Phase 1 — Core
+경로가 이동하거나 권한이 만료되면 `폴더 다시 연결…`만 제공한다.
 
-#### 3.1 Repository 등록
+### 3.2 env 파일 탐색
 
-**동작:**
-1. `NSOpenPanel`로 폴더 선택.
-2. 선택 폴더에서 `git rev-parse --is-inside-work-tree` 실행 — Git 저장소가 아니면 경고 후 등록은 허용.
-3. `git remote get-url origin` → `gitRemoteURL`, `git branch --show-current` → `defaultBranch` 자동 채움.
-4. 폴더의 보안 스코프 북마크 생성 → `localPathBookmark` 저장.
-5. Repository name 기본값은 폴더명, 수정 가능.
-6. 루트 Target(`relativePath = "."`) 자동 생성.
+관리 대상:
 
-**수용 기준:**
-- [ ] Git 저장소 폴더 선택 시 remote/branch가 자동으로 채워진다.
-- [ ] 앱 재시작 후에도 북마크로 폴더에 접근 가능하다.
-- [ ] Git 저장소가 아닌 폴더도 등록 가능하다 (Git 기능만 비활성).
+- `.env`
+- `.env.*` 형태의 실제 값 파일
 
-**엣지 케이스:**
-- remote 미설정 저장소 → `gitRemoteURL = nil`, 정상 등록.
-- 북마크 stale (폴더 이동/삭제) → Repository에 "경로 재연결 필요" 상태 표시, 재선택 UI 제공.
-- 동일 경로 중복 등록 → 거부.
+제외 대상:
 
-#### 3.2 Env Parser
+- `.env.example`, `.env.sample`, `.env.template`, `.env.dist`, `.env.schema`
+- `.git`, `node_modules`, `.build`, `.next`, `.venv`, `DerivedData`, `Pods`, `build`, `dist` 하위
+- 심볼릭 링크 디렉터리 하위
 
-`.env` 파일의 파싱/직렬화 모듈. **라운드트립 보존은 목표가 아니다** — 파싱은 key/value 추출, 직렬화는 앱 데이터로부터의 신규 생성이다.
+탐색은 Repository 전체에서 재귀적으로 수행한다. 사용자는 Repository 메뉴의 `.env 파일 다시 찾기`로 수동 재탐색할 수 있으며 앱 활성화와 파일 감시를 통해서도 갱신된다.
 
-**파싱 규칙:**
+### 3.3 Parser
 
-| 입력 | 결과 |
+- `KEY=value`와 `export KEY=value`를 지원한다.
+- 첫 번째 `=`를 기준으로 key/value를 구분한다.
+- 따옴표, 공백, `#` 주석, 개행 이스케이프를 처리한다.
+- 키는 `[A-Za-z_][A-Za-z0-9_]*` 형식이어야 한다.
+- UTF-8만 지원하고 잘못된 줄은 경고로 수집한다.
+- 직렬화 시 키를 정렬하고 파일 끝 개행을 하나 유지한다.
+
+### 3.4 최초 가져오기
+
+- 발견한 파일마다 실제 키와 값을 그대로 읽는다.
+- 기존 앱 데이터가 없거나 구버전 Environment 데이터만 있으면 실제 파일을 우선한다.
+- 새로 가져온 값은 기본적으로 Secret으로 저장한다.
+- `.env`가 있는데 `.env.local` Target만 남아 있는 구버전 데이터는 실제 `.env` 경로로 전환한다.
+- `.env.local`을 새로 만들거나 실제 값을 빈 문자열로 치환하지 않는다.
+
+### 3.5 자동 동기화
+
+각 실제 파일별로 마지막 합의 내용의 정규화 SHA256을 기기 로컬 `UserDefaults`에 저장한다.
+
+| 상태 | 처리 |
 |---|---|
-| `KEY=value` | key=`KEY`, value=`value` |
-| `export KEY=value` | `export ` 접두어 제거 |
-| `KEY="va lue"` / `KEY='va lue'` | 양끝 따옴표 제거, 내부 이스케이프(`\"` → `"`, `\n` → 개행)는 double quote만 처리 |
-| `KEY=a=b=c` | 첫 `=` 기준 분리 → value=`a=b=c` |
-| `KEY=value # comment` | 따옴표 밖 ` #` 이후는 주석으로 제거 |
-| `# comment` / 빈 줄 | 무시 |
-| `KEY=` | value=`""` (빈 값도 유효한 키) |
-| `잘못된 줄` (`=` 없음) | 무시하되 경고 목록에 수집 |
+| 파일과 Env Pilot 값이 같음 | 아무 작업도 하지 않음 |
+| Env Pilot만 변경 | 해당 실제 파일에 atomic write |
+| 파일만 추가·수정 | Env Pilot로 자동 가져오기 |
+| 양쪽이 모두 변경 | `Changes`에 diff 표시 |
+| 파일에서 키 또는 파일 자체 삭제 | 자동 삭제하지 않고 `Changes`에 표시 |
+| 파싱 실패 | 원인을 표시하고 자동 쓰기 중단 |
+| Keychain 값 미도착 | 빈 값으로 쓰지 않고 대기 |
 
-- 키 유효성: `[A-Za-z_][A-Za-z0-9_]*`. 위반 시 경고 목록에 수집.
-- 인코딩: UTF-8 고정. BOM 제거.
+동일한 내용이면 파일을 다시 쓰지 않는다. 한 파일의 변경이 다른 env 파일에 영향을 주면 안 된다.
 
-**직렬화 규칙:**
-- 형식: `KEY=value`, 키 알파벳 순 정렬.
-- value에 공백, `#`, `"`, 개행이 포함되면 double quote로 감싸고 이스케이프.
-- 파일 끝 개행 1개.
+### 3.6 diff와 동기화 액션
 
-**수용 기준:**
-- [ ] 위 파싱 규칙 표의 모든 케이스를 커버하는 유닛 테스트 통과.
-- [ ] parse → serialize → parse 결과의 key/value 집합이 동일하다.
+- 동기화 버튼은 `Variables` 탭에서 선택한 파일에 실제 drift가 있을 때만 표시한다.
+- 버튼은 `동기화…`로 표시하며 `Changes` 탭으로 이동한다.
+- `Accounts`, `Health`, `Changes` 공통 헤더에는 동기화 버튼을 두지 않는다.
+- `Changes`에서는 다음 중 하나를 선택한다.
+  - `로컬 변경 검토`: 키별로 파일 값 사용 여부와 삭제 반영 여부 선택
+  - `Env Pilot 값 적용`: 앱 값을 실제 파일에 적용
+  - `파일 복원`: 삭제된 파일을 앱 값으로 복원
+- 자동으로 선택할 수 없는 방향을 단일 버튼으로 즉시 실행하지 않는다.
 
-#### 3.3 Variable CRUD
+### 3.7 Variable 편집
 
-**동작:**
-- Target + Environment 선택 상태에서 키 추가/수정/삭제.
-- 키 이름/값/설명 검색 (실시간 필터).
-- Secret 토글: 켜면 값이 Keychain으로 이동하고 UI에서 마스킹(`••••`), 클릭 시 일시 표시. 끄면 Keychain에서 SwiftData로 복귀.
-- 값 복사 버튼 (Secret 포함 — 클립보드 복사는 허용).
-- 모든 변경은 HistoryEntry 기록 (Phase 3에서 UI 노출, 기록 자체는 Phase 1부터).
+- 선택한 실제 env 파일의 키만 표시한다.
+- 상단 툴바의 `+` 버튼 하나로 키를 추가한다.
+- 콘텐츠 안에 중복 `키 추가` 버튼을 만들지 않는다.
+- 값과 설명을 인라인 편집하고, Secret은 마스킹·인증 후 표시한다.
+- 키 또는 설명을 검색할 수 있다.
+- dotenv, shell exports, JSON 형식으로 복사할 수 있다.
 
-**수용 기준:**
-- [ ] 같은 (Target, Environment)에 중복 키 추가가 거부된다.
-- [ ] Secret 값이 SwiftData 저장소 파일에 평문으로 존재하지 않는다.
-- [ ] 검색이 key/note 양쪽에 매칭된다.
+### 3.8 `.env.example`
 
-#### 3.4 Generate
+- 실제 env 파일과 같은 폴더의 `.env.example` 키를 비교한다.
+- 추가·삭제된 키를 `Changes`에서 파일별로 처리한다.
+- 추가 시 해당 실제 파일에만 빈 키를 만들고, 삭제 시 해당 파일의 키만 대상으로 한다.
+- Variables에서 선택 파일의 키로 `.env.example`을 역생성할 수 있다.
 
-**동작:**
-1. Environment 선택 → Generate 실행 (Repository 단위 또는 Target 단위).
-2. 각 Target의 Variables(해당 Environment)를 직렬화해 `{target}/{outputPath}`에 기록.
-3. 대상 파일이 이미 존재하고 내용이 다르면 덮어쓰기 확인 다이얼로그 (diff 미리보기 포함).
-4. Secret 값은 Keychain에서 읽어 실값으로 출력.
-5. 생성 직후 Git Safety 검사 실행 (§3.11) — 출력 파일이 gitignore되지 않았으면 경고.
+### 3.9 Health
 
-**수용 기준:**
-- [ ] 생성된 파일을 파서로 다시 읽으면 앱의 key/value와 일치한다.
-- [ ] 기존 파일과 내용이 동일하면 파일을 건드리지 않는다 (mtime 보존).
-- [ ] 변수가 0개인 Target은 스킵하고 결과 요약에 표시한다.
-
----
-
-### Phase 2 — Monorepo & Git
-
-#### 3.5 Monorepo 자동 탐색
-
-**동작:** Repository 등록 시(및 수동 "Scan" 시) 루트에서 감지:
-
-| 파일 | 규칙 |
-|---|---|
-| `pnpm-workspace.yaml` | `packages:` glob 목록 |
-| `package.json` | `workspaces` 배열 (또는 `workspaces.packages`) |
-| `nx.json` 존재 | `package.json` workspaces 규칙과 동일하게 처리 |
-| `turbo.json` 존재 | workspaces 정의는 위 둘에서 가져옴 (turbo 자체는 신호일 뿐) |
-
-glob(`apps/*` 등)을 해석해 `package.json`이 존재하는 디렉토리만 Target 후보로 나열 → 사용자가 체크박스로 선택 → Target 생성. 각 Target의 examplePath는 해당 디렉토리에 `.env.example`이 있으면 자동 바인딩.
-
-**수용 기준:**
-- [ ] pnpm / npm(yarn) workspaces 각각의 샘플 레포에서 Target 후보가 정확히 나열된다.
-- [ ] 모노레포가 아니면 루트 Target 하나만 유지된다.
-- [ ] 재스캔 시 기존 Target은 유지되고 신규 후보만 추가 제안된다.
-
-**엣지 케이스:** glob이 심볼릭 링크를 가리키면 무시. `node_modules` 하위는 항상 제외.
-
-#### 3.6 .env.example 변경 감지
-
-**동작:**
-- 감지 시점: ① 앱 활성화(foreground 전환) 시 ② 수동 Scan ③ FSEvents로 example 파일 감시 (앱 실행 중).
-- 각 Target의 `examplePath` 현재 내용을 파싱해 `exampleSnapshot`의 키 집합과 비교.
-- diff = 추가된 키(+), 삭제된 키(−). 값 변경은 example 특성상 추적하지 않음 (키 존재만 비교).
-
-**수용 기준:**
-- [ ] `git pull` 후 앱으로 전환하면 example에 추가된 키가 Git Changes 탭에 나타난다.
-- [ ] 스냅샷이 없는 최초 스캔은 diff를 만들지 않고 스냅샷만 저장한다.
-
-#### 3.7 Example Diff 처리 UI
-
-**동작:** Git Changes 탭에 Target별 diff 목록 표시. 각 키에 대해:
-- **추가** → 모든 Environment에 빈 값 Variable 생성 (값 입력 유도 배지 표시)
-- **삭제** → 해당 키의 Variable을 전 Environment에서 삭제 (확인 다이얼로그)
-- **무시** → `isIgnored = true`, 이후 diff에서 제외
-
-처리 완료된 diff는 `exampleSnapshot` 갱신으로 소멸.
-
-**수용 기준:**
-- [ ] 추가/삭제/무시 각각 처리 후 재스캔 시 같은 diff가 다시 나타나지 않는다.
-- [ ] 무시한 키는 이후 example에 계속 존재해도 diff에 뜨지 않는다.
-
----
-
-### Phase 3 — Insight
-
-#### 3.8 Health Check
-
-**판정 규칙 (Target × Environment 단위 → Repository로 집계):**
+Health는 실제 env 파일 단위로 판정한다.
 
 | 상태 | 조건 |
 |---|---|
-| 🟢 Healthy | example의 모든 키(무시 키 제외)가 해당 Environment에 값과 함께 존재 |
-| 🟡 Warning | 키는 있으나 값이 빈 Variable 존재, 또는 example 키 누락 |
-| 🔴 Critical | 특정 Environment에 Variable이 하나도 없음 (example에는 키가 있는데) |
+| Healthy | example의 모든 키가 값과 함께 존재 |
+| Warning | 키가 누락되었거나 값이 비어 있음 |
+| Critical | example에는 키가 있지만 해당 실제 파일의 Variable이 없음 |
 
-Repository 상태 = 소속 Target×Environment 중 최악 값. 사이드바에 색상 뱃지, Health 탭에 상세(어떤 키가 어느 Environment에서 누락인지) 표시.
+누락 키를 누르면 해당 실제 파일을 선택하고 기존 상단 `+` 입력 흐름으로 이동한다.
 
-**수용 기준:**
-- [ ] 누락 키를 클릭하면 해당 Variable 입력 화면으로 이동한다.
+### 3.10 Git Safety
 
-#### 3.9 Compare
+- 실제 env 파일이 `.gitignore` 대상인지 확인한다.
+- Git index에 tracked 상태인지 확인한다.
+- 파일 권한이 `0600`인지 확인한다.
+- 안전하지 않으면 자동 쓰기를 중단하고 Health에서 해결 방법을 제공한다.
+- 선택적으로 pre-commit hook을 설치해 `.env`와 `.env.*` 커밋을 차단한다. example 파일은 제외한다.
 
-**동작:** 키 × Environment 매트릭스. 행 = 키, 열 = Environment, 셀 = 값(Secret은 마스킹). 누락 셀은 강조 표시. 셀 직접 편집 가능. Target 단위로 표시.
+### 3.11 History, Accounts, 백업
 
-**수용 기준:**
-- [ ] 한 화면에서 4개 Environment의 같은 키 값을 비교할 수 있다.
-- [ ] 누락 셀 클릭으로 즉시 값 입력이 가능하다.
+- History는 Repository와 실제 파일 경로로 필터링한다.
+- Accounts는 Repository 단위이며 env 파일 동기화와 무관하다.
+- `.envide` 번들은 Repository, 실제 파일 경로, Variable을 보존한다.
+- Secret 포함 번들은 패스프레이즈 기반 AES-GCM으로 암호화한다.
 
-#### 3.10 History
+### 3.12 iCloud
 
-**동작:** HistoryEntry를 날짜별 그룹으로 표시 (예: "Today — OPENAI_MODEL 추가"). 필터: Repository, Environment. 값 자체는 표시하지 않음 (해시만 저장되어 있음). 보존 기간: 최근 1000건, 초과분 자동 삭제.
-
-#### 3.11 Git Safety
-
-**동작:** Generate 시 및 Health 탭에서 각 Target의 outputPath에 대해:
-1. `git check-ignore <path>` — ignore되지 않으면 🔴 경고 + `.gitignore`에 한 줄 추가 버튼 제공.
-2. `git ls-files <path>` — 이미 tracked면 🔴 경고 (untrack 방법 안내 텍스트만, 자동 실행 안 함).
-3. 파일 권한이 `0600`이 아니면 🟡 안내 + 수정 버튼.
-
-**수용 기준:**
-- [ ] gitignore 누락 상태에서 Generate하면 경고가 뜬다.
-- [ ] ".gitignore에 추가" 버튼이 실제로 항목을 추가하고 재검사가 통과한다.
-
-#### 3.12 Import
-
-**동작:** 기존 `.env` 파일 선택 (또는 Target의 outputPath에서 자동 발견) → 파싱 → Target + Environment 지정 → 일괄 등록.
-
-**충돌 정책:** 기존 키와 겹치면 키별로 "파일 값 사용 / 기존 값 유지" 선택 UI (기본: 파일 값 사용). 값이 동일한 키는 조용히 스킵.
-
-**수용 기준:**
-- [ ] Repository 등록 직후 기존 `.env.local`을 임포트해 즉시 관리 상태로 만들 수 있다.
-
----
-
-### Phase 4 — Sync
-
-#### 3.13 iCloud 자동 동기화
-
-**동작:** SwiftData + CloudKit(`ModelConfiguration(cloudKitDatabase: .automatic)`)으로 같은 Apple 계정의 Mac 간 데이터 자동 동기화.
-
-- **동기화 대상:** Workspace, Environment, Repository(메타), Target, Variable(비밀 아닌 값), HistoryEntry.
-- **동기화 제외:** `localPathBookmark` — 기기별 값. 다른 Mac에서 처음 열면 Repository가 "경로 미연결" 상태로 나타나고, 로컬 폴더를 지정하면 연결된다 (§3.1 재연결 UI 재사용).
-- **Secret:** iCloud Keychain(`kSecAttrSynchronizable`)이 별도 채널로 동기화 — CloudKit에는 올라가지 않음.
-- **충돌 정책:** CloudKit 기본 last-write-wins 수용. 커스텀 병합 없음.
-
-**수용 기준:**
-- [ ] Mac A에서 추가한 Variable이 Mac B에 나타난다 (Secret 포함).
-- [ ] Mac B에서 로컬 경로만 지정하면 Generate까지 동작한다.
-
-#### 3.14 Export / Import 번들 (수동 공유)
-
-**동작:**
-- Export: Repository(또는 전체 Workspace) 선택 → 단일 `.envide` 파일(JSON) 생성. Secret 실값 포함 여부 선택 — 포함 시 사용자 입력 패스프레이즈로 CryptoKit(AES-GCM, PBKDF2 키 유도) 암호화.
-- 전달은 사용자 몫 (AirDrop, 이메일 등 — 앱은 관여하지 않고 macOS 공유 시트만 제공).
-- Import: `.envide` 파일 열기 → (암호화 시 패스프레이즈 입력) → 미리보기 → §3.12와 동일한 충돌 정책으로 병합.
-
-**수용 기준:**
-- [ ] 암호화 export 파일은 텍스트 에디터로 열었을 때 Secret이 노출되지 않는다.
-- [ ] 잘못된 패스프레이즈는 명확한 에러로 실패한다 (부분 임포트 없음).
-- [ ] export → 다른 Mac에서 import → Generate 결과가 원본과 동일하다.
-
----
-
-### Phase 5 — Polish
-
-#### 3.15 로그인 시 시작
-
-**동작:** Settings에 "로그인 시 시작" 토글. `SMAppService.mainApp.register()` / `.unregister()` 호출. 토글 상태는 `SMAppService.mainApp.status`에서 읽는다 (별도 저장 안 함 — 시스템이 소스).
-
-**수용 기준:**
-- [ ] 토글 on → macOS 재로그인 시 앱이 메뉴바에 자동 실행된다.
-- [ ] 시스템 설정 > 로그인 항목에서 사용자가 직접 끄면 앱 토글도 off로 표시된다.
-
-#### 3.16 Secret 클립보드 자동 삭제
-
-**동작:** Secret 값 복사(§3.3) 시 30초 뒤 클립보드를 비운다. 삭제 전 `NSPasteboard.changeCount`를 비교해 **사용자가 다른 것을 복사했으면 건드리지 않는다.** 복사 직후 토스트에 "30초 후 클립보드에서 삭제됨" 안내. 비밀 아닌 값 복사는 대상 아님.
-
-**수용 기준:**
-- [ ] Secret 복사 30초 후 클립보드가 비어 있다.
-- [ ] 그 사이 다른 텍스트를 복사했으면 클립보드가 유지된다.
-
-#### 3.17 .env.example 역생성
-
-**동작:** Target의 Variables(전 Environment 합집합 키, 무시 키 제외)로 `examplePath` 파일을 생성/갱신. 값은 빈 문자열(`KEY=`), note가 있으면 위 줄에 `# note` 주석. 직렬화 규칙은 §3.2 재사용. 기존 example과 다르면 §3.4와 동일한 덮어쓰기 확인 다이얼로그. 완료 시 `exampleSnapshot` 갱신 (자기 변경이 §3.6 diff로 뜨지 않도록).
-
-**수용 기준:**
-- [ ] 역생성한 example을 §3.6이 재스캔해도 diff가 발생하지 않는다.
-- [ ] Secret 키도 키 이름은 포함되고 값은 비어 있다.
-
-#### 3.18 Output Drift 감지
-
-**동작:** Generate 시 출력 파일 내용의 SHA256을 Target에 저장(`outputHash`). 앱 활성화/수동 Scan 시(§3.6과 동일 시점) 현재 파일 해시와 비교 — 다르면 Git Changes 탭에 "외부에서 수정됨" 항목 표시. 선택지: **가져오기**(§3.12 임포트 플로우) / **덮어쓰기**(§3.4 재생성) / **무시**(현재 해시로 갱신).
-
-**수용 기준:**
-- [ ] 앱 밖에서 `.env.local`을 편집 후 앱 전환 시 drift가 감지된다.
-- [ ] Generate 직후에는 drift가 뜨지 않는다.
-
-**엣지 케이스:** 파일 삭제됨 → drift로 취급, "덮어쓰기"만 제안. Generate한 적 없는 Target(`outputHash == nil`)은 검사 제외.
-
-#### 3.19 pre-commit hook 설치
-
-**동작:** Git Safety(§3.11) 결과 옆에 "pre-commit hook 설치" 버튼. `.git/hooks/pre-commit`에 스테이징된 파일 중 outputPath 패턴(`.env`, `.env.*`, example 제외) 매칭 시 커밋을 차단하는 셸 스크립트를 기록하고 `chmod +x`.
-
-- 기존 hook 존재 시: 파일 끝에 마커 주석(`# envide-guard begin/end`)으로 감싼 블록 append. 이미 마커가 있으면 블록만 교체.
-- 제거 버튼: 마커 블록만 삭제, 나머지 내용 보존.
-
-**수용 기준:**
-- [ ] 설치 후 `.env.local`을 `git add && git commit`하면 커밋이 실패하고 원인 메시지가 출력된다.
-- [ ] husky 등 기존 hook이 있는 저장소에서 설치/제거해도 기존 내용이 보존된다.
-
-**엣지 케이스:** `core.hooksPath`가 설정된 저장소(husky 포함) → 해당 경로의 pre-commit에 동일 정책 적용.
-
-#### 3.20 다른 포맷으로 복사
-
-**동작:** Variables 탭 툴바 메뉴 "Copy as…" — 현재 Target × Environment 전체를 클립보드로:
-
-| 포맷 | 출력 |
-|---|---|
-| dotenv | §3.2 직렬화 결과 그대로 |
-| Shell exports | `export KEY="value"` 줄들 |
-| JSON | `{"KEY": "value"}` (pretty, 키 정렬) |
-
-Secret은 실값 포함 (클립보드 복사 허용 정책 §3.3과 동일) — 단 §3.16 자동 삭제 적용.
-
-**수용 기준:**
-- [ ] Shell exports 결과를 zsh에 붙여넣으면 모든 변수가 설정된다.
-
-#### 3.21 값 중복 경고
-
-**동작:** Compare(§3.9) 매트릭스에서 같은 키의 값이 서로 다른 Environment 간 동일하면 해당 셀들에 🟡 배지 (예: Production == Development). 빈 값끼리는 제외. Health(§3.8)에는 반영하지 않음 — 정보성 경고일 뿐 (의도적으로 같은 값일 수 있음).
-
-**수용 기준:**
-- [ ] Production과 Development에 같은 API 키를 넣으면 두 셀에 배지가 표시된다.
-- [ ] 배지에 hover하면 어느 Environment와 겹치는지 표시된다.
+- Repository 메타데이터, 실제 파일 binding, Variable, History는 SwiftData + CloudKit으로 동기화한다.
+- 로컬 폴더 북마크와 파일 체크포인트는 기기별 값이므로 CloudKit에 저장하지 않는다.
+- 다른 Mac에서는 Repository 폴더를 다시 연결하면 그 Mac의 실제 파일과 비교한다.
+- 파일과 Cloud 값이 모두 존재하고 다르면 임의 덮어쓰기하지 않고 diff로 처리한다.
 
 ---
 
 ## 4. UI 스펙
 
-### 4.1 레이아웃
-
-```
-┌────────────────────────────────────────────────────┐
-│ 툴바:                    [Environment ▾]  [Generate]│
-├──────────┬─────────────────────────────────────────┤
-│ Sidebar  │ Repository 상세                          │
-│          │ ┌─ Target 트리 (apps/shop, services/api)│
-│ Reposito-│ ├─ 탭: Variables│Compare│Health│Git     │
-│ ries     │ │        Changes                        │
-│ History  │ │                                       │
-│ Settings │ │  (선택 탭 콘텐츠)                       │
-└──────────┴─────────────────────────────────────────┘
+```text
+┌──────────────┬──────────────────────────────────────────┐
+│ Repositories │ Variables 탭: [apps/api/.env.production] │
+│              ├──────────────────────────────────────────┤
+│ History      │ Variables | Accounts | Health | Changes │
+│              ├──────────────────────────────────────────┤
+│              │ drift가 있을 때만 [동기화…]             │
+│              │ 실제 파일의 key/value 목록               │
+└──────────────┴──────────────────────────────────────────┘
 ```
 
-- `NavigationSplitView` 3-column: 사이드바 / Target 목록 / 콘텐츠.
-- 사이드바 Repository 항목에 Health 뱃지(🟢🟡🔴)와 미처리 diff 개수 뱃지.
+### 4.1 파일 선택
 
-### 4.2 전역 Environment 셀렉터
+- 실제 env 파일이 하나면 경로를 정적인 문맥 라벨로 표시한다.
+- 여러 개면 실제 Repository 상대 경로 목록에서 선택한다.
+- 파일 선택 UI는 `Variables` 탭에서만 표시한다.
+- Environment 편집, 로컬 피커, Target 피커는 제공하지 않는다.
 
-- 툴바 우측 상단 드롭다운. 선택 시 Variables/Health/Generate가 모두 해당 Environment 기준으로 즉시 갱신.
-- Compare 탭만 예외 (전 Environment 동시 표시).
-- 선택값은 앱 전역 상태로 유지, 재시작 시 복원.
+### 4.2 상태 표시
 
-### 4.3 화면별 상태
+- 정상 상태에서는 `동기화됨`, `동기화 전` 같은 상시 상태를 표시하지 않는다.
+- 실제 drift가 있으면 정확한 원인과 `동기화…` 버튼을 표시한다.
+- 파일 접근·Git Safety·파싱 문제는 원인과 이동 가능한 해결 액션을 표시한다.
+- 빈 Repository에는 `.env 파일을 찾지 못했습니다`와 `다시 찾기`만 표시한다.
+- 상태 설명을 위해 의미 없는 정보 아이콘이나 임의의 경로 문장을 추가하지 않는다.
 
-| 화면 | 빈 상태 | 에러 상태 |
-|---|---|---|
-| Repository 목록 | "폴더를 드래그하거나 + 로 추가" | — |
-| Variables | "키가 없습니다 — example에서 가져오기 / 직접 추가" | 경로 미연결 시 재연결 CTA |
-| Git Changes | "변경 없음 ✓" | git 실행 실패 시 원인 메시지 |
-| Health | 전부 🟢일 때 "All Healthy" | — |
+### 4.3 Settings
 
-### 4.4 메뉴바 앱 (`MenuBarExtra`)
+- Workspace 이름
+- 로그인 시 시작
+- Secret 표시·복사 인증
+- iCloud 동기화
 
-- Environment 전환 서브메뉴
-- Repository별 Health 요약 (아이콘 + 이름)
-- Generate (현재 Environment 기준, Repository 선택 서브메뉴)
-- Scan Now
-- 메인 창 열기
-
-### 4.5 Settings
-
-- Workspace 이름, Environment 목록 편집(추가/삭제/순서)
-- iCloud Sync on/off
-- 기본 examplePath / outputPath 패턴
+Environment 목록과 기본 output 경로 설정은 제공하지 않는다.
 
 ---
 
-## 5. 기술 아키텍처
+## 5. 수용 기준
 
-| 영역 | 선택 | 비고 |
-|---|---|---|
-| 플랫폼 | macOS 14+ | SwiftData + MenuBarExtra 요구 |
-| UI | SwiftUI | AppKit 브릿지는 NSOpenPanel 등 최소한만 |
-| 저장 | SwiftData (+CloudKit, Phase 4) | §2.2 제약 준수 |
-| Secret | Keychain (`kSecAttrSynchronizable`) | iCloud Keychain 동기화 |
-| 암호화 | CryptoKit (AES-GCM) | Export 번들 전용 |
-| Git | `git` CLI를 `Process`로 실행 | 라이브러리 미사용. 필요 명령: `rev-parse`, `remote get-url`, `branch --show-current`, `check-ignore`, `ls-files` |
-| 파일 감시 | FSEvents (`DispatchSource` 또는 `FSEventStream`) | example 파일 한정 |
-| 샌드박스 | App Sandbox + 보안 스코프 북마크 | 폴더 접근 전 `startAccessingSecurityScopedResource` |
-
-**프로젝트 구조 (제안):**
-
-```
-EnvIDE/
-├── Models/          # SwiftData 엔티티 (§2.2)
-├── Services/
-│   ├── EnvParser.swift       # §3.2 — 순수 함수, 유닛 테스트 대상
-│   ├── GitService.swift      # git CLI 래퍼
-│   ├── MonorepoScanner.swift # §3.5
-│   ├── SecretStore.swift     # Keychain 래퍼
-│   ├── GenerateService.swift
-│   └── BundleCodec.swift     # §3.14 export/import
-├── Views/
-└── MenuBar/
-```
+- [ ] 프로젝트 루트에 `.env`만 있으면 `.env`의 키와 실제 값이 즉시 표시된다.
+- [ ] `.env`가 있는데 `.env.local`로 잘못 연결되거나 `.env.local`이 생성되지 않는다.
+- [ ] `.env`, `.env.local`, 중첩 `.env.production`이 각각 독립된 경로로 표시된다.
+- [ ] `.env.example`과 `node_modules` 하위 env 파일은 값 파일 목록에서 제외된다.
+- [ ] Environment 선택기와 편집 UI가 어디에도 나타나지 않는다.
+- [ ] 키 추가 액션은 Variables 툴바의 `+` 하나만 제공된다.
+- [ ] 실제 diff가 없으면 동기화 버튼이 나타나지 않는다.
+- [ ] 실제 diff가 있으면 선택 파일의 Variables 영역에만 동기화 버튼이 나타난다.
+- [ ] Accounts, Health, Changes 탭에서는 공통 동기화 버튼이 나타나지 않는다.
+- [ ] 로컬과 앱이 동시에 바뀌면 어느 쪽도 자동 덮어쓰지 않는다.
+- [ ] 파일 삭제는 자동 데이터 삭제로 이어지지 않으며 복원할 수 있다.
+- [ ] 한 파일의 값을 변경해도 다른 env 파일 내용은 바뀌지 않는다.
 
 ---
 
-## 6. 마일스톤
+## 6. 기술 아키텍처
 
-| Phase | 범위 | Definition of Done |
-|---|---|---|
-| 1 | Repository 등록, Parser, Variable CRUD, Generate | 실제 프로젝트 하나를 등록해 `.env.local`을 생성하고 앱이 그 파일의 유일한 소스가 된다 |
-| 2 | Monorepo 탐색, example diff 감지/처리 | 실제 모노레포에서 `git pull` 후 새 키를 앱 안에서 처리할 수 있다 |
-| 3 | Health, Compare, History, Import, Git Safety | 사이드바만 봐도 모든 프로젝트의 env 상태를 파악할 수 있다 |
-| 4 | iCloud Sync, Export/Import 번들 | 두 번째 Mac에서 로컬 경로 지정만으로 동일한 Generate 결과를 얻는다 |
-| 5 | 로그인 시 시작, 클립보드 자동 삭제, example 역생성, drift 감지, pre-commit hook, Copy as, 값 중복 경고 | 앱을 켜두기만 하면 커밋 사고·클립보드 잔류·외부 수정이 모두 방어된다 |
+| 영역 | 선택 |
+|---|---|
+| 플랫폼/UI | macOS, SwiftUI |
+| 모델 | SwiftData + CloudKit |
+| Secret | Keychain (`kSecAttrSynchronizable`) |
+| 파싱 | `EnvParser` |
+| 파일 발견·동기화 | `LocalSyncService` |
+| 파일 감시 | `DispatchSourceFileSystemObject` |
+| Git 안전성 | `.gitignore`, index, 권한 검사 |
+| 샌드박스 | 보안 스코프 북마크 |
 
----
-
-## 7. 의도된 단순화 (Phase 4 완료 시점 검토 결과)
-
-개인 개발자용 규모(§1.3)에서는 문제가 되지 않아 의도적으로 수용한 사항들. 조건이 바뀌면 재검토한다.
-
-| 항목 | 내용 | 재검토 조건 |
-|---|---|---|
-| Repository 삭제 잔여물 | 삭제 시 Variable은 cascade로 지워지지만 Keychain의 Secret과 UserDefaults의 `bookmark.{uuid}`, `monorepoScanned.{uuid}`는 남는다. 같은 uuid 번들 재import 시 Secret이 복원되는 부수 효과 있음 | Secret 완전 삭제가 요구사항이 되면 |
-| Export 다이얼로그 취소 | `ExportSheet`의 fileExporter가 `.constant` 바인딩 — 취소 시 재표시될 수 있음 | 실사용에서 재현되면 `@State` Bool로 교체 |
-| Secret 생성 순서 | `VariableService.create`가 insert 후 Keychain 저장 — Keychain 실패 시 빈 Variable이 남을 수 있음 | Keychain 실패가 실제로 관측되면 |
-| FSEvents 감시 없음 (§3.6 ③) | example 변경 감지는 앱 활성화 + 수동 Scan만. `git pull` 후 앱 전환 시점에 감지되므로 실용상 충분 | 앱을 띄워둔 채 감지가 필요해지면 |
-| 메뉴바 Generate 무확인 실행 (§3.4) | diff 확인·Git Safety 검사 없이 즉시 실행 — 앱 데이터가 `.env`의 유일한 소스라는 전제(§6 Phase 1 DoD) | 전제가 깨지는 워크플로가 생기면 |
-| Git tracked 오탐 | `.git/index` 바이트 부분 매칭이라 하위 경로의 동명 파일이 tracked면 루트도 경고 — 오탐은 경고 과다 방향이라 안전 | 오탐이 거슬리면 index 포맷 파싱 |
-| Health 동기 검사 | 메뉴바/사이드바가 열릴 때마다 전 repo 파일 IO + Secret별 Keychain 읽기 | repo·Secret 수가 늘어 체감되면 캐시 |
-| Secret 표시 지속 | "일시 표시"(§3.3)가 행 재생성까지 유지됨 | — |
+핵심 테스트는 실제 경로 탐색, 최초 값 가져오기, 파일별 독립성, 양쪽 변경 conflict, 삭제 복원, watcher를 검증한다.

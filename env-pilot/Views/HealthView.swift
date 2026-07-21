@@ -12,14 +12,14 @@ extension HealthStatus {
     var color: Color { seedTone.fg }
 }
 
-/// Health 탭 (PRD §3.8) — Target × Environment 판정 상세 + Git Safety 이슈 + pre-commit hook (§3.19).
+/// Health 탭 (PRD §3.8) — 실제 env 파일 판정 + Git Safety 이슈 + pre-commit hook (§3.19).
 struct HealthView: View {
     let items: [HealthService.Item]
     let safetyReports: [GitSafetyService.Report]
     let hookInstalled: Bool?   // nil = Git 저장소 아님 → hook 섹션 숨김
     let claudeEnvDenied: Bool? // nil = .claude 설정 없음 → Claude 행 숨김
     let agentsRuleInstalled: Bool // AGENTS.md 공통 규칙 — 모든 에이전트 대상이라 항상 표시
-    let onSelectMissingKey: (_ targetPath: String, _ environmentName: String, _ key: String) -> Void
+    let onSelectMissingKey: (_ filePath: String, _ key: String) -> Void
     let onAddToGitignore: (_ fileName: String) -> Void
     let onFixPermissions: (_ report: GitSafetyService.Report) -> Void
     let onInstallHook: () -> Void
@@ -35,12 +35,12 @@ struct HealthView: View {
         if items.isEmpty && safetyReports.allSatisfy({ !$0.hasIssue }) && hookInstalled == nil
             && claudeEnvDenied == nil && agentsRuleInstalled {
             ContentUnavailableView("판정 대상 없음", systemImage: "questionmark.circle",
-                                   description: Text(".env.example이 있는 Target이 없습니다"))
+                                   description: Text(".env.example과 함께 확인할 실제 env 파일이 없습니다"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)   // 상단 정렬 VStack 안에서 중앙 배치
         } else {
             List {
                 if allHealthy {
-                    Label("All Healthy — 모든 Environment가 example 키를 충족합니다",
+                    Label("All Healthy — 모든 .env 파일이 example 키를 충족합니다",
                           systemImage: "checkmark.seal.fill")
                         .foregroundStyle(SeedColor.fgPositive)
                 } else {
@@ -109,25 +109,13 @@ struct HealthView: View {
     }
 
     @ViewBuilder private var healthSections: some View {
-        let grouped = Dictionary(grouping: items, by: \.targetPath)
-        let targetPaths = grouped.keys.sorted()
-        ForEach(targetPaths, id: \.self) { targetPath in
-            if targetPaths.count == 1 {
-                healthRows(grouped[targetPath] ?? [])
-            } else {
-                Section(targetPath == "." ? "Root" : targetPath) {
-                    healthRows(grouped[targetPath] ?? [])
-                }
-            }
-        }
-    }
-
-    @ViewBuilder private func healthRows(_ items: [HealthService.Item]) -> some View {
         ForEach(items) { item in
             HStack(alignment: .top) {
                 Image(systemName: item.status.iconName)
                     .foregroundStyle(item.status.color)
-                Text(item.environmentName).frame(width: 110, alignment: .leading)
+                Text(item.filePath)
+                    .fontDesign(.monospaced)
+                    .frame(width: 180, alignment: .leading)
                 keyChips(item)
                 Spacer()
             }
@@ -143,13 +131,13 @@ struct HealthView: View {
             WrappingHStack {
                 ForEach(item.missingKeys, id: \.self) { key in
                     Button("\(key) 누락") {
-                        onSelectMissingKey(item.targetPath, item.environmentName, key)
+                        onSelectMissingKey(item.filePath, key)
                     }
                     .buttonStyle(.seedChip(.critical))
                 }
                 ForEach(item.emptyValueKeys, id: \.self) { key in
                     Button("\(key) 빈 값") {
-                        onSelectMissingKey(item.targetPath, item.environmentName, key)
+                        onSelectMissingKey(item.filePath, key)
                     }
                     .buttonStyle(.seedChip(.warning))
                 }

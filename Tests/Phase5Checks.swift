@@ -1,7 +1,7 @@
-// Phase 5 검증 (PRD §3.16–§3.21): CopyFormat, example 역생성, drift, pre-commit hook.
+// Phase 5 검증 (PRD §3.16–§3.21): CopyFormat, example 역생성, pre-commit hook.
 // 실행: swiftc -parse-as-library env-pilot/Models/Models.swift env-pilot/Services/EnvParser.swift \
 //       env-pilot/Services/GitInfo.swift env-pilot/Services/SecretStore.swift \
-//       env-pilot/Services/VariableService.swift env-pilot/Services/GenerateService.swift \
+//       env-pilot/Services/VariableService.swift \
 //       env-pilot/Services/ExampleDiffService.swift env-pilot/Services/GitSafetyService.swift \
 //       env-pilot/Services/ClipboardService.swift Tests/Phase5Checks.swift -o /tmp/phase5-check && /tmp/phase5-check
 
@@ -12,7 +12,6 @@ struct Phase5Checks {
     static func main() throws {
         try checkCopyFormats()
         try checkExampleContent()
-        try checkDrift()
         try checkHookBlockEditing()
         try checkHookFileOps()
         try checkHookBlocksRealCommit()
@@ -37,14 +36,15 @@ struct Phase5Checks {
         assert(CopyFormat.dotenv.render(["K": "v"]) == EnvParser.serialize(["K": "v"]), "dotenv는 §3.2 그대로")
     }
 
-    // §3.17 — example 역생성: 전 Environment 합집합, 무시 키 제외, note 주석, 재파싱 시 diff 없음
+    // §3.17 — example 역생성: 선택 파일 키, 무시 키 제외, note 주석, 재파싱 시 diff 없음
     static func checkExampleContent() throws {
         let target = Target(relativePath: ".")
-        let a = Variable(key: "API_URL", value: "https://prod", environmentName: "Production")
-        let b = Variable(key: "SECRET_KEY", value: "", environmentName: "Local")
+        target.outputPath = ".env"
+        let a = Variable(key: "API_URL", value: "https://prod", environmentName: target.envFilePath)
+        let b = Variable(key: "SECRET_KEY", value: "", environmentName: target.envFilePath)
         b.note = "발급: 팀 위키 참고"
         b.isSecret = true
-        let ignored = Variable(key: "IGNORED_KEY", value: "x", environmentName: "Local")
+        let ignored = Variable(key: "IGNORED_KEY", value: "x", environmentName: target.envFilePath)
         ignored.isIgnored = true
         target.variables = [a, b, ignored]
 
@@ -60,39 +60,6 @@ struct Phase5Checks {
         let keys = ExampleDiffService.keys(of: content)
         assert(keys == ["API_URL", "SECRET_KEY"], "역생성 키 집합 (got \(keys))")
         assert(EnvParser.parse(content).entries.allSatisfy { $0.value.isEmpty }, "값은 모두 빈 문자열")
-    }
-
-    // §3.18 — output drift
-    static func checkDrift() throws {
-        let fm = FileManager.default
-        let root = fm.temporaryDirectory.appendingPathComponent("phase5-drift-\(ProcessInfo.processInfo.processIdentifier)")
-        try fm.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? fm.removeItem(at: root) }
-
-        let repo = Repository(name: "demo")
-        let target = Target(relativePath: ".")
-        target.repository = repo
-        repo.targets = [target]
-        let outputURL = root.appendingPathComponent(target.outputPath)
-
-        // Generate한 적 없음(outputHash == nil) → 검사 제외
-        try "A=1\n".write(to: outputURL, atomically: true, encoding: .utf8)
-        assert(GenerateService.checkDrift(repo: repo, rootURL: root).isEmpty, "outputHash nil은 제외")
-
-        // Generate 직후 → drift 없음
-        target.outputHash = GenerateService.sha256("A=1\n")
-        assert(GenerateService.checkDrift(repo: repo, rootURL: root).isEmpty, "Generate 직후 drift 없음")
-
-        // 외부 수정 → drift
-        try "A=changed\n".write(to: outputURL, atomically: true, encoding: .utf8)
-        let drifted = GenerateService.checkDrift(repo: repo, rootURL: root)
-        assert(drifted.count == 1 && drifted[0].fileExists && drifted[0].fileContent == "A=changed\n",
-               "외부 수정 감지 (got \(drifted))")
-
-        // 삭제 → drift (fileExists false)
-        try fm.removeItem(at: outputURL)
-        let deleted = GenerateService.checkDrift(repo: repo, rootURL: root)
-        assert(deleted.count == 1 && !deleted[0].fileExists, "삭제도 drift")
     }
 
     // §3.19 — 마커 블록 삽입/교체/제거 (순수 문자열)

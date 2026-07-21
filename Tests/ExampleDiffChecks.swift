@@ -23,9 +23,9 @@ struct ExampleDiffChecks {
         let repo = Repository(name: "demo")
         ctx.insert(repo)
         let target = Target(relativePath: ".")
+        target.outputPath = ".env"
         target.repository = repo
         ctx.insert(target)
-        let envs = ["Local", "Production"]
 
         // 최초 스캔: 스냅샷만 저장, diff 없음 (§3.6)
         try "DATABASE_URL=\nOLD_API=\n".write(to: exampleURL, atomically: true, encoding: .utf8)
@@ -39,20 +39,21 @@ struct ExampleDiffChecks {
         assert(diffs[0].addedKeys == ["GEMINI_API_KEY", "SENTRY_DSN"], "추가 키 (got \(diffs[0].addedKeys))")
         assert(diffs[0].removedKeys == ["OLD_API"], "삭제 키 (got \(diffs[0].removedKeys))")
 
-        // 추가 처리 → 모든 env에 빈 값 생성, 재스캔 시 diff에서 사라짐 (§3.7)
-        try ExampleDiffService.resolveAdded(key: "GEMINI_API_KEY", action: .addToAllEnvironments,
-                                            target: target, environmentNames: envs, context: ctx)
+        // 추가 처리 → 해당 실제 파일에 빈 값 생성, 재스캔 시 diff에서 사라짐 (§3.7)
+        try ExampleDiffService.resolveAdded(key: "GEMINI_API_KEY", action: .addToFile,
+                                            target: target, context: ctx)
         let created = (target.variables ?? []).filter { $0.key == "GEMINI_API_KEY" }
-        assert(created.count == 2 && created.allSatisfy { $0.value.isEmpty && !$0.isIgnored }, "전 env에 빈 값 생성")
+        assert(created.count == 1 && created[0].environmentName == ".env"
+               && created[0].value.isEmpty && !created[0].isIgnored, "해당 파일에 빈 값 생성")
 
         // 무시 처리 → isIgnored 마커, 재스캔 시 diff에서 사라짐
         try ExampleDiffService.resolveAdded(key: "SENTRY_DSN", action: .ignore,
-                                            target: target, environmentNames: envs, context: ctx)
+                                            target: target, context: ctx)
         let markers = (target.variables ?? []).filter { $0.key == "SENTRY_DSN" }
-        assert(markers.count == 2 && markers.allSatisfy(\.isIgnored), "무시 마커")
+        assert(markers.count == 1 && markers[0].isIgnored, "무시 마커")
 
         // 삭제 처리 → 변수 제거 (여기선 원래 변수가 없었으므로 스냅샷만 정리)
-        try ExampleDiffService.resolveRemoved(key: "OLD_API", action: .deleteFromAllEnvironments,
+        try ExampleDiffService.resolveRemoved(key: "OLD_API", action: .deleteFromFile,
                                               target: target, context: ctx)
 
         diffs = ExampleDiffService.scan(repo: repo, rootURL: root, context: ctx)
@@ -60,8 +61,9 @@ struct ExampleDiffChecks {
 
         // 무시한 키는 example에 계속 있어도 diff에 안 뜸 (§3.7 수용 기준) — 위 재스캔이 증명.
         // 삭제 액션이 실제 변수를 지우는지도 확인
-        try VariableService.create(key: "TO_DELETE", value: "x", environmentName: "Local", target: target, context: ctx)
-        try ExampleDiffService.resolveRemoved(key: "TO_DELETE", action: .deleteFromAllEnvironments,
+        try VariableService.create(key: "TO_DELETE", value: "x", environmentName: target.envFilePath,
+                                   target: target, context: ctx)
+        try ExampleDiffService.resolveRemoved(key: "TO_DELETE", action: .deleteFromFile,
                                               target: target, context: ctx)
         assert(!(target.variables ?? []).contains { $0.key == "TO_DELETE" }, "삭제 액션이 변수 제거")
 

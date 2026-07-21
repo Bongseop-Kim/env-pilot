@@ -78,7 +78,7 @@ enum BundleCodec {
                     gitRemoteURL: repo.gitRemoteURL,
                     defaultBranch: repo.defaultBranch,
                     localPathDisplay: repo.localPathDisplay,
-                    targets: (repo.targets ?? []).sorted { $0.relativePath < $1.relativePath }.map { target in
+                    targets: (repo.targets ?? []).sorted { $0.envFilePath < $1.envFilePath }.map { target in
                         Payload.Tgt(
                             relativePath: target.relativePath,
                             examplePath: target.examplePath,
@@ -157,7 +157,7 @@ enum BundleCodec {
     // MARK: - 병합 (§3.12와 동일한 충돌 정책)
 
     struct MergeItem: Identifiable {
-        let group: String       // "repo / target / environment" — UI 그룹 라벨
+        let group: String       // "repo / 실제 env 파일 경로" — UI 그룹 라벨
         let key: String
         let newValue: String
         let kind: ImportService.Item.Kind
@@ -170,9 +170,11 @@ enum BundleCodec {
         for repoData in payload.repositories {
             let repo = findRepo(repoData, in: workspace)
             for targetData in repoData.targets {
-                let target = (repo?.targets ?? []).first { $0.relativePath == targetData.relativePath }
+                let target = (repo?.targets ?? []).first {
+                    $0.relativePath == targetData.relativePath && $0.outputPath == targetData.outputPath
+                }
                 for varData in targetData.variables where !varData.isIgnored {
-                    let group = "\(repoData.name) / \(targetData.relativePath) / \(varData.environmentName)"
+                    let group = mergeGroup(repoName: repoData.name, target: targetData, variable: varData)
                     let existing = (target?.variables ?? []).first {
                         $0.key == varData.key && $0.environmentName == varData.environmentName && !$0.isIgnored
                     }
@@ -195,7 +197,7 @@ enum BundleCodec {
     }
 
     /// useFileValue: conflict 항목 중 "파일 값 사용"을 선택한 MergeItem.id 집합.
-    /// 없는 Environment/Repository/Target은 생성한다 (새 Repository는 경로 미연결 상태 → §3.1 재연결 UI).
+    /// 없는 Repository/실제 파일 binding은 생성한다 (새 Repository는 경로 미연결 상태).
     static func execute(payload: Payload, useFileValue: Set<String>,
                         workspace: Workspace, context: ModelContext) throws {
         for repoData in payload.repositories {
@@ -224,7 +226,9 @@ enum BundleCodec {
 
             for targetData in repoData.targets {
                 let target: Target
-                if let found = (repo.targets ?? []).first(where: { $0.relativePath == targetData.relativePath }) {
+                if let found = (repo.targets ?? []).first(where: {
+                    $0.relativePath == targetData.relativePath && $0.outputPath == targetData.outputPath
+                }) {
                     target = found
                 } else {
                     target = Target(relativePath: targetData.relativePath)
@@ -236,7 +240,7 @@ enum BundleCodec {
                 }
 
                 for varData in targetData.variables {
-                    let group = "\(repoData.name) / \(targetData.relativePath) / \(varData.environmentName)"
+                    let group = mergeGroup(repoName: repoData.name, target: targetData, variable: varData)
                     let itemID = "\(group)#\(varData.key)"
                     let existing = (target.variables ?? []).first {
                         $0.key == varData.key && $0.environmentName == varData.environmentName
@@ -276,5 +280,16 @@ enum BundleCodec {
         let repos = workspace.repositories ?? []
         return repos.first { $0.uuid == repoData.uuid }
             ?? repos.first { $0.gitRemoteURL != nil && $0.gitRemoteURL == repoData.gitRemoteURL }
+    }
+
+    private static func mergeGroup(repoName: String, target: Payload.Tgt,
+                                   variable: Payload.Var) -> String {
+        let filePath = target.relativePath == "."
+            ? target.outputPath
+            : "\(target.relativePath)/\(target.outputPath)"
+        if variable.environmentName.isEmpty || variable.environmentName == filePath {
+            return "\(repoName) / \(filePath)"
+        }
+        return "\(repoName) / \(filePath) · \(variable.environmentName) (legacy)"
     }
 }
