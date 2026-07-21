@@ -162,8 +162,8 @@ create-dmg \
     "$dmg" \
     "$dmg_staging"
 
-identity="$(security find-identity -v -p codesigning | awk -F '"' '/Developer ID Application/ {print $2; exit}')"
-codesign --sign "$identity" "$dmg"
+identity="$(security find-identity -v -p codesigning | awk -F '"' '/Developer ID Application:.*\(DKYJDHFLUG\)/ {print $2; exit}')"
+codesign --sign "$identity" --timestamp "$dmg"
 
 xcrun notarytool submit "$dmg" --keychain-profile "$notary_profile" --wait
 xcrun stapler staple "$dmg"

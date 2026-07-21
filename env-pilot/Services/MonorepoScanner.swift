@@ -28,7 +28,8 @@ enum MonorepoScanner {
         for glob in globs where !glob.hasPrefix("!") {   // negation 패턴은 무시
             for dir in resolve(glob: glob, root: rootURL) {
                 let rel = String(dir.standardizedFileURL.path.dropFirst(rootURL.standardizedFileURL.path.count + 1))
-                guard !seen.contains(rel), !rel.contains("node_modules"),
+                guard !rel.isEmpty,   // 루트 자체가 glob에 매칭되면 "." 후보와 중복
+                      !seen.contains(rel), !rel.contains("node_modules"),
                       fm.fileExists(atPath: dir.appendingPathComponent("package.json").path)
                 else { continue }
                 seen.insert(rel)

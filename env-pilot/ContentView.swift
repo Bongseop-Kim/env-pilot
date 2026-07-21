@@ -248,12 +248,11 @@ struct RepositoryDetailView: View {
             refreshDiffs()   // git pull 후 앱 전환 시 감지 (§3.6)
             refreshHealth()
         }
-        .sheet(isPresented: Binding(presence: $scanCandidates)) {
+        .sheet(isPresented: Binding(presence: $scanCandidates), onDismiss: {
+            refreshDiffs()
+        }) {
             if let candidates = scanCandidates {
-                TargetScanSheet(repo: repo, candidates: candidates) {
-                    scanCandidates = nil
-                    refreshDiffs()
-                }
+                TargetScanSheet(repo: repo, candidates: candidates)
             }
         }
         .sheet(isPresented: Binding(presence: $driftImportPlan), onDismiss: {

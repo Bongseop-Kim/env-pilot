@@ -6,16 +6,14 @@ import SwiftData
 struct TargetScanSheet: View {
     let repo: Repository
     let candidates: [MonorepoScanner.Candidate]
-    let onDone: () -> Void
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var selected: Set<String>
     private let existingPaths: Set<String>
 
-    init(repo: Repository, candidates: [MonorepoScanner.Candidate], onDone: @escaping () -> Void) {
+    init(repo: Repository, candidates: [MonorepoScanner.Candidate]) {
         self.repo = repo
         self.candidates = candidates
-        self.onDone = onDone
         let existing = Set((repo.targets ?? []).map(\.relativePath))
         existingPaths = existing
         _selected = State(initialValue: Set(candidates.map(\.relativePath)).subtracting(existing))
@@ -49,7 +47,7 @@ struct TargetScanSheet: View {
 
             HStack {
                 Spacer()
-                Button("취소") { dismiss(); onDone() }
+                Button("취소") { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button("Target 추가 (\(selected.count))") { add() }
                     .keyboardShortcut(.defaultAction)
@@ -78,6 +76,5 @@ struct TargetScanSheet: View {
         }
         try? context.save()
         dismiss()
-        onDone()
     }
 }
