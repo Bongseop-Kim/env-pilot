@@ -2,10 +2,11 @@ import SwiftUI
 import SwiftData
 import ServiceManagement
 
-/// 설정 (PRD §4.5) — Workspace 이름, Environment 목록(추가/삭제/순서), 기본 경로 패턴, 로그인 시 시작(§3.15).
+/// 설정 (PRD §4.5) — Workspace 이름, Repository별 Environment 목록(추가/삭제/순서), 기본 경로 패턴, 로그인 시 시작(§3.15).
 struct SettingsView: View {
     @Environment(\.modelContext) private var context
     @Query private var workspaces: [Workspace]
+    @Query(sort: \Repository.createdAt) private var repositories: [Repository]
     @AppStorage("defaultExamplePath") private var defaultExamplePath = ".env.example"
     @AppStorage("defaultOutputPath") private var defaultOutputPath = ".env.local"
     @AppStorage("iCloudSyncEnabled") private var iCloudSyncEnabled = false
@@ -14,10 +15,14 @@ struct SettingsView: View {
     @State private var newEnvironmentName = ""
     @State private var deleteCandidate: EnvEnvironment?
     @State private var deleteMessage = ""
+    @State private var selectedRepoUUID: String?
 
     private var workspace: Workspace? { workspaces.first }
+    private var selectedRepo: Repository? {
+        repositories.first { $0.uuid == selectedRepoUUID } ?? repositories.first
+    }
     private var environments: [EnvEnvironment] {
-        (workspace?.environments ?? []).sorted { $0.sortOrder < $1.sortOrder }
+        (selectedRepo?.environments ?? []).sorted { $0.sortOrder < $1.sortOrder }
     }
 
     var body: some View {
@@ -30,6 +35,17 @@ struct SettingsView: View {
             }
 
             Section("Environments") {
+                if repositories.isEmpty {
+                    Text("Repository를 먼저 추가하세요. Environment는 Repository마다 따로 관리됩니다.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Picker("Repository", selection: Binding(
+                        get: { selectedRepo?.uuid ?? "" },
+                        set: { selectedRepoUUID = $0 }
+                    )) {
+                        ForEach(repositories, id: \.uuid) { Text($0.name).tag($0.uuid) }
+                    }
+                }
                 List {
                     ForEach(environments) { environment in
                         HStack {
@@ -104,12 +120,12 @@ struct SettingsView: View {
     }
 
     private func add() {
-        guard canAdd, let workspace else { return }
+        guard canAdd, let repo = selectedRepo else { return }
         let environment = EnvEnvironment(
             name: newEnvironmentName.trimmingCharacters(in: .whitespaces),
             sortOrder: (environments.last?.sortOrder ?? -1) + 1
         )
-        environment.workspace = workspace
+        environment.repository = repo
         context.insert(environment)
         try? context.save()
         newEnvironmentName = ""
@@ -126,9 +142,11 @@ struct SettingsView: View {
 
     private func askDelete(_ environment: EnvEnvironment) {
         let name = environment.name
-        let count = (try? context.fetchCount(FetchDescriptor<Variable>(
+        let repoUUID = environment.repository?.uuid
+        let matches = (try? context.fetch(FetchDescriptor<Variable>(
             predicate: #Predicate { $0.environmentName == name }
-        ))) ?? 0
+        ))) ?? []
+        let count = matches.filter { $0.target?.repository?.uuid == repoUUID }.count
         deleteMessage = count > 0
             ? "\"\(name)\" Environment를 삭제할까요? 이 환경의 변수 \(count)개가 보이지 않게 됩니다."
             : "\"\(name)\" Environment를 삭제할까요?"

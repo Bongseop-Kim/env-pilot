@@ -198,16 +198,6 @@ enum BundleCodec {
     /// 없는 Environment/Repository/Target은 생성한다 (새 Repository는 경로 미연결 상태 → §3.1 재연결 UI).
     static func execute(payload: Payload, useFileValue: Set<String>,
                         workspace: Workspace, context: ModelContext) throws {
-        // Environment 보충
-        let existingEnvs = Set((workspace.environments ?? []).map(\.name))
-        var nextOrder = ((workspace.environments ?? []).map(\.sortOrder).max() ?? -1) + 1
-        for name in payload.environments where !existingEnvs.contains(name) {
-            let env = EnvEnvironment(name: name, sortOrder: nextOrder)
-            env.workspace = workspace
-            context.insert(env)
-            nextOrder += 1
-        }
-
         for repoData in payload.repositories {
             let repo: Repository
             if let found = findRepo(repoData, in: workspace) {
@@ -220,6 +210,16 @@ enum BundleCodec {
                 repo.localPathDisplay = repoData.localPathDisplay
                 repo.workspace = workspace
                 context.insert(repo)
+            }
+
+            // Environment 보충 — Repository 소속
+            let existingEnvs = Set((repo.environments ?? []).map(\.name))
+            var nextOrder = ((repo.environments ?? []).map(\.sortOrder).max() ?? -1) + 1
+            for name in payload.environments where !existingEnvs.contains(name) {
+                let env = EnvEnvironment(name: name, sortOrder: nextOrder)
+                env.repository = repo
+                context.insert(env)
+                nextOrder += 1
             }
 
             for targetData in repoData.targets {

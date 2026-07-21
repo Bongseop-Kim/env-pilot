@@ -14,14 +14,14 @@ struct BundleChecks {
         let source = try makeContext()
         let workspaceA = Workspace()
         source.ctx.insert(workspaceA)
-        let envA = EnvEnvironment(name: "Local", sortOrder: 0)
-        envA.workspace = workspaceA
-        source.ctx.insert(envA)
 
         let repoA = Repository(name: "blog")
         repoA.gitRemoteURL = "git@github.com:me/blog.git"
         repoA.workspace = workspaceA
         source.ctx.insert(repoA)
+        let envA = EnvEnvironment(name: "Local", sortOrder: 0)
+        envA.repository = repoA
+        source.ctx.insert(envA)
         let targetA = Target(relativePath: ".")
         targetA.repository = repoA
         source.ctx.insert(targetA)
@@ -83,7 +83,7 @@ struct BundleChecks {
 
         let repoB = (workspaceB.repositories ?? []).first!
         assert(repoB.uuid == repoA.uuid, "Repository uuid 유지 (Keychain 계정 키 안정성)")
-        assert((workspaceB.environments ?? []).map(\.name) == ["Local"], "Environment 보충")
+        assert(repoB.environmentNames == ["Local"], "Environment 보충 — Repository 소속")
         let targetB = (repoB.targets ?? []).first!
         assert((targetB.variables ?? []).first { $0.key == "LEGACY_KEY" }?.isIgnored == true, "무시 마커 이식")
         let secretB = (targetB.variables ?? []).first { $0.key == "API_TOKEN" }!

@@ -25,10 +25,9 @@ struct ContentView: View {
     @State private var healthByRepo: [String: HealthStatus] = [:]
     @State private var repoPendingDelete: Repository?
 
+    // Environment는 Repository 소속 — 선택된 repo의 목록 기준
     private var environmentNames: [String] {
-        (workspaces.first?.environments ?? [])
-            .sorted { $0.sortOrder < $1.sortOrder }
-            .map(\.name)
+        selectedRepository?.environmentNames ?? []
     }
 
     private var selectedRepository: Repository? {
@@ -149,14 +148,16 @@ struct ContentView: View {
             }
         }
         .toolbar {
-            // 전역 Environment 셀렉터 (PRD §4.2) — 전환 시 모든 화면이 해당 환경 기준
+            // Environment 셀렉터 (PRD §4.2) — 선택된 Repository의 환경 목록 기준
             ToolbarItem(placement: .primaryAction) {
-                Picker("Environment", selection: $selectedEnvironment) {
-                    ForEach(environmentNames, id: \.self) { Text($0).tag($0) }
+                if !environmentNames.isEmpty {
+                    Picker("Environment", selection: $selectedEnvironment) {
+                        ForEach(environmentNames, id: \.self) { Text($0).tag($0) }
+                    }
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                    .help("Environment 전환 — Variables/Health/Generate가 이 환경 기준으로 동작합니다")
                 }
-                .pickerStyle(.menu)
-                .fixedSize()
-                .help("Environment 전환 — Variables/Health/Generate가 이 환경 기준으로 동작합니다")
             }
         }
         .sheet(isPresented: Binding(presence: $bundleData)) {
@@ -171,7 +172,7 @@ struct ContentView: View {
         }
         .task { refreshSidebarHealth() }
         .onChange(of: environmentNames, initial: true) {
-            // Settings에서 Environment 삭제 시 선택값 폴백
+            // Repository 전환·Environment 삭제 시 선택값 폴백
             if !environmentNames.isEmpty && !environmentNames.contains(selectedEnvironment) {
                 selectedEnvironment = environmentNames.first!
             }
@@ -192,7 +193,7 @@ struct ContentView: View {
         for repo in repositories {
             guard let rootURL = RepositoryService.resolveBookmark(repo) else { continue }
             healthByRepo[repo.uuid] = HealthService.overall(
-                HealthService.check(repo: repo, rootURL: rootURL, environmentNames: environmentNames))
+                HealthService.check(repo: repo, rootURL: rootURL, environmentNames: repo.environmentNames))
         }
     }
 

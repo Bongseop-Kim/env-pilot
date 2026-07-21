@@ -20,11 +20,13 @@ final class Workspace {
 }
 
 /// 'Environment'는 SwiftUI와 충돌하므로 접두어 사용.
+/// Repository 소속 — 프로젝트마다 환경 구성이 다르다 (local/prod만 쓰는 프로젝트 등).
 @Model
 final class EnvEnvironment {
-    var name: String = ""              // "Local", "Development", "Staging", "Production"
+    var name: String = ""              // 예: "Local", "Production" — 자유 편집
     var sortOrder: Int = 0
-    var workspace: Workspace?
+    var workspace: Workspace?          // 레거시(Workspace 전역 시절) — migrateEnvironmentsToRepositories에서 이관
+    var repository: Repository?
 
     init(name: String, sortOrder: Int = 0) {
         self.name = name
@@ -46,9 +48,18 @@ final class Repository {
     var targets: [Target]? = []
     @Relationship(deleteRule: .cascade, inverse: \Credential.repository)
     var credentials: [Credential]? = []
+    @Relationship(deleteRule: .cascade, inverse: \EnvEnvironment.repository)
+    var environments: [EnvEnvironment]? = []
 
     init(name: String) {
         self.name = name
+    }
+}
+
+extension Repository {
+    /// 정렬된 환경 이름 목록 — 화면 전반의 공통 소비 형태.
+    var environmentNames: [String] {
+        (environments ?? []).sorted { $0.sortOrder < $1.sortOrder }.map(\.name)
     }
 }
 
@@ -140,4 +151,24 @@ extension Workspace {
          Credential.self, HistoryEntry.self]
 
     static let defaultEnvironmentNames = ["Local", "Development", "Staging", "Production"]
+
+    /// Workspace 전역 Environment(레거시) → 각 Repository로 복제 이관. 멱등.
+    static func migrateEnvironmentsToRepositories(_ context: ModelContext) {
+        guard let environments = try? context.fetch(FetchDescriptor<EnvEnvironment>()) else { return }
+        let legacy = environments.filter { $0.repository == nil }
+        guard !legacy.isEmpty else { return }
+
+        for env in legacy.sorted(by: { $0.sortOrder < $1.sortOrder }) {
+            for repo in env.workspace?.repositories ?? []
+            where !(repo.environments ?? []).contains(where: { $0.name == env.name }) {
+                let copy = EnvEnvironment(
+                    name: env.name,
+                    sortOrder: ((repo.environments ?? []).map(\.sortOrder).max() ?? -1) + 1)
+                copy.repository = repo
+                context.insert(copy)
+            }
+            context.delete(env)
+        }
+        try? context.save()
+    }
 }

@@ -6,15 +6,14 @@ import AppKit
 struct MenuBarView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.openWindow) private var openWindow
-    @Query private var workspaces: [Workspace]
     @Query(sort: \Repository.createdAt) private var repositories: [Repository]
     @AppStorage("selectedEnvironment") private var selectedEnvironment = "Local"
     @State private var healthByRepo: [String: String] = [:]   // 메뉴 렌더마다 동기 파일 스캔 방지 캐시
 
+    // Environment는 Repository 소속 — 메뉴바 셀렉터는 전체 repo의 합집합
     private var environmentNames: [String] {
-        (workspaces.first?.environments ?? [])
-            .sorted { $0.sortOrder < $1.sortOrder }
-            .map(\.name)
+        var seen = Set<String>()
+        return repositories.flatMap(\.environmentNames).filter { seen.insert($0).inserted }
     }
 
     var body: some View {
@@ -36,7 +35,8 @@ struct MenuBarView: View {
         Menu("Generate — \(selectedEnvironment)") {
             ForEach(repositories) { repo in
                 Button(repo.name) { generate(repo) }
-                    .disabled(RepositoryService.resolveBookmark(repo) == nil)
+                    .disabled(RepositoryService.resolveBookmark(repo) == nil
+                              || !repo.environmentNames.contains(selectedEnvironment))
             }
         }
         Button("Scan Now") { scanAll() }
@@ -58,7 +58,7 @@ struct MenuBarView: View {
                     continue
                 }
                 let items = HealthService.check(repo: repo, rootURL: rootURL,
-                                                environmentNames: environmentNames)
+                                                environmentNames: repo.environmentNames)
                 healthByRepo[repo.uuid] = HealthService.overall(items).symbol
                 await Task.yield()   // repo가 많아도 메뉴 UI가 멈추지 않게
             }

@@ -91,9 +91,9 @@ struct ExportSheet: View {
         let repos = wholeWorkspace
             ? (workspace.repositories ?? []).sorted { $0.createdAt < $1.createdAt }
             : [repo]
-        let environments = (workspace.environments ?? [])
-            .sorted { $0.sortOrder < $1.sortOrder }
-            .map(\.name)
+        // 번들 포맷 v1 호환 — environments는 대상 repo들의 합집합
+        var seen = Set<String>()
+        let environments = repos.flatMap(\.environmentNames).filter { seen.insert($0).inserted }
         do {
             let payload = BundleCodec.makePayload(repos: repos, environments: environments,
                                                   includeSecrets: includeSecrets)
