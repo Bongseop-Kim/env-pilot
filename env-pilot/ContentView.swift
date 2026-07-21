@@ -256,6 +256,11 @@ struct ContentView: View {
     }
 }
 
+private struct EnvFileEditRequest: Identifiable {
+    let id = UUID()
+    let target: Target?
+}
+
 struct RepositoryDetailView: View {
     let repo: Repository
     @Environment(\.modelContext) private var context
@@ -275,6 +280,8 @@ struct RepositoryDetailView: View {
     @State private var agentsRuleInstalled = false
     @State private var pendingAddKey: String?
     @State private var showExport = false
+    @State private var envFileEditRequest: EnvFileEditRequest?
+    @State private var envFilePendingDelete: Target?
 
     enum DetailTab { case variables, accounts, health, gitChanges }
 
@@ -299,6 +306,23 @@ struct RepositoryDetailView: View {
         .frame(maxHeight: .infinity, alignment: .top)
         .toolbar {
             ToolbarItemGroup {
+                if tab == .variables {
+                    Menu("Env 파일 관리", systemImage: "doc.badge.gearshape") {
+                        Button("새 .env 파일…", systemImage: "plus") {
+                            envFileEditRequest = EnvFileEditRequest(target: nil)
+                        }
+                        if let selectedTarget {
+                            Divider()
+                            Button("이름/경로 변경…", systemImage: "pencil") {
+                                envFileEditRequest = EnvFileEditRequest(target: selectedTarget)
+                            }
+                            Button("파일 삭제…", systemImage: "trash", role: .destructive) {
+                                envFilePendingDelete = selectedTarget
+                            }
+                        }
+                    }
+                    .help(".env 파일 생성, 이름/경로 변경 및 삭제")
+                }
                 Button(".env 파일 다시 찾기", systemImage: "viewfinder") { refreshEnvFiles() }
                     .help("Repository에서 .env 파일 다시 찾기 (⌘R)")
                     .keyboardShortcut("r", modifiers: .command)
@@ -310,6 +334,23 @@ struct RepositoryDetailView: View {
             if let workspace = repo.workspace {
                 ExportSheet(repo: repo, workspace: workspace)
             }
+        }
+        .sheet(item: $envFileEditRequest) { request in
+            EnvFileSheet(repo: repo, target: request.target) { target in
+                selectedEnvFilePath = target.envFilePath
+                refreshEnvFiles()
+            }
+        }
+        .confirmationDialog(
+            "\(envFilePendingDelete?.envFilePath ?? ".env") 파일을 삭제할까요?",
+            isPresented: Binding(presence: $envFilePendingDelete), titleVisibility: .visible
+        ) {
+            Button("파일 삭제", role: .destructive) {
+                if let target = envFilePendingDelete { deleteEnvFile(target) }
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("디스크의 파일과 Env Pilot의 변수·Secret을 함께 삭제합니다. 이 작업은 되돌릴 수 없습니다.")
         }
         .task(id: repo.uuid) {
             refreshDiffs()
@@ -392,8 +433,11 @@ struct RepositoryDetailView: View {
                 ContentUnavailableView {
                     Label(".env 파일을 찾지 못했습니다", systemImage: "doc.text.magnifyingglass")
                 } description: {
-                    Text("프로젝트에 .env 또는 .env.* 파일을 추가한 뒤 다시 찾으세요")
+                    Text("새 파일을 만들거나 프로젝트에 추가된 .env 파일을 다시 찾으세요")
                 } actions: {
+                    Button("새 .env 파일") {
+                        envFileEditRequest = EnvFileEditRequest(target: nil)
+                    }
                     Button(".env 파일 다시 찾기", action: refreshEnvFiles)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -487,6 +531,21 @@ struct RepositoryDetailView: View {
         NotificationCenter.default.post(name: .localSyncConfigurationDidChange, object: repo.uuid)
     }
 
+    private func deleteEnvFile(_ target: Target) {
+        guard let rootURL = RepositoryService.resolveBookmark(repo) else {
+            syncError = "폴더에 접근할 수 없습니다. 경로를 다시 연결하세요."
+            return
+        }
+        let deletedPath = target.envFilePath
+        do {
+            try EnvFileService.delete(target, rootURL: rootURL, context: context)
+            if selectedEnvFilePath == deletedPath { selectedEnvFilePath = "" }
+            refreshEnvFiles()
+        } catch {
+            syncError = error.localizedDescription
+        }
+    }
+
     private func applyPilotValue(for target: Target) {
         guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
         if let error = LocalSyncService.forceApply(target: target, rootURL: rootURL) {
@@ -540,7 +599,10 @@ struct RepositoryDetailView: View {
                 if tab == .variables, let target = selectedTarget {
                     HStack(spacing: SeedSpacing.x2) {
                         if targets.count > 1 {
-                            Picker("Env 파일", selection: $selectedEnvFilePath) {
+                            Picker("Env 파일", selection: Binding(
+                                get: { selectedTarget?.envFilePath ?? "" },
+                                set: { selectedEnvFilePath = $0 }
+                            )) {
                                 ForEach(targets, id: \.envFilePath) { target in
                                     Text(target.envFilePath).tag(target.envFilePath)
                                 }

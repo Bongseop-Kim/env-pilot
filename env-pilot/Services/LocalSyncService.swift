@@ -43,14 +43,42 @@ enum LocalSyncService {
         var isSynced = false
     }
 
+    static let skippedDirectoryNames: Set<String> = [
+        ".git", ".build", ".next", ".swiftpm", ".venv",
+        "node_modules", "DerivedData", "Pods", "build", "dist"
+    ]
+
+    private static func checkpointKey(repoUUID: String, relativePath: String, outputPath: String) -> String {
+        "envSync.hash.\(repoUUID).\(relativePath).\(outputPath)"
+    }
+
     private static func checkpointKey(_ target: Target) -> String {
-        "envSync.hash.\(target.repository?.uuid ?? "-").\(target.relativePath).\(target.outputPath)"
+        checkpointKey(repoUUID: target.repository?.uuid ?? "-",
+                      relativePath: target.relativePath,
+                      outputPath: target.outputPath)
+    }
+
+    /// 파일 생성·이름 변경에서도 동기화 기준점을 안전하게 이어갈 수 있게 한다.
+    static func localCheckpoint(repoUUID: String, relativePath: String, outputPath: String) -> String? {
+        UserDefaults.standard.string(forKey: checkpointKey(
+            repoUUID: repoUUID, relativePath: relativePath, outputPath: outputPath))
+    }
+
+    static func setLocalCheckpoint(_ checkpoint: String?, repoUUID: String,
+                                   relativePath: String, outputPath: String) {
+        let key = checkpointKey(repoUUID: repoUUID, relativePath: relativePath, outputPath: outputPath)
+        if let checkpoint {
+            UserDefaults.standard.set(checkpoint, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
     }
 
     static func clearLocalState(for repo: Repository) {
         UserDefaults.standard.removeObject(forKey: "envSync.active.\(repo.uuid)")
         for target in repo.targets ?? [] {
-            UserDefaults.standard.removeObject(forKey: checkpointKey(target))
+            setLocalCheckpoint(nil, repoUUID: repo.uuid,
+                               relativePath: target.relativePath, outputPath: target.outputPath)
         }
     }
 
@@ -65,17 +93,13 @@ enum LocalSyncService {
             errorHandler: { _, _ in true }
         ) else { return [] }
 
-        let skippedDirectories: Set<String> = [
-            ".git", ".build", ".next", ".swiftpm", ".venv",
-            "node_modules", "DerivedData", "Pods", "build", "dist"
-        ]
         let rootPath = rootURL.standardizedFileURL.path
         var files: [EnvFile] = []
 
         for case let url as URL in enumerator {
             let values = try? url.resourceValues(forKeys: Set(keys))
             if values?.isDirectory == true {
-                if values?.isSymbolicLink == true || skippedDirectories.contains(url.lastPathComponent) {
+                if values?.isSymbolicLink == true || skippedDirectoryNames.contains(url.lastPathComponent) {
                     enumerator.skipDescendants()
                 }
                 continue
@@ -96,8 +120,8 @@ enum LocalSyncService {
         return files.sorted { $0.relativePath < $1.relativePath }
     }
 
-    private static func isManagedEnvFileName(_ name: String) -> Bool {
-        guard name == ".env" || name.hasPrefix(".env.") else { return false }
+    static func isManagedEnvFileName(_ name: String) -> Bool {
+        guard name == ".env" || (name.hasPrefix(".env.") && name.count > 5) else { return false }
         guard name != ".env" else { return true }
         let suffix = String(name.dropFirst(5)).lowercased()
         let templates: Set<String> = ["example", "sample", "template", "dist", "schema"]

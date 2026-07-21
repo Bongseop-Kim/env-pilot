@@ -83,14 +83,14 @@ enum VariableService {
         try context.save()
     }
 
-    static func delete(_ variable: Variable, context: ModelContext) throws {
+    static func delete(_ variable: Variable, context: ModelContext, saveChanges: Bool = true) throws {
         let old = value(of: variable)
         if variable.isSecret {
             SecretStore.delete(account: account(for: variable))
         }
         record("deleted", variable, oldValue: old, context: context)
         context.delete(variable)
-        try context.save()
+        if saveChanges { try context.save() }
     }
 
     private static func account(for variable: Variable) -> String {
