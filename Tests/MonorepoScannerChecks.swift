@@ -38,19 +38,23 @@ struct MonorepoScannerChecks {
                                   withDestinationURL: pnpm.appendingPathComponent("services/api"))
 
         let pnpmResult = MonorepoScanner.scan(rootURL: pnpm)
-        assert(pnpmResult.map(\.relativePath) == ["apps/admin", "apps/shop", "services/api"],
-               "pnpm 후보 (got \(pnpmResult.map(\.relativePath)))")
+        assert(pnpmResult.map(\.relativePath) == [".", "apps/admin", "apps/shop", "services/api"],
+               "pnpm 후보 — 루트 포함 (got \(pnpmResult.map(\.relativePath)))")
+        assert(pnpmResult.first { $0.relativePath == "." }?.hasExample == false, "루트 example 없음")
         assert(pnpmResult.first { $0.relativePath == "apps/shop" }?.hasExample == true, "example 감지")
         assert(pnpmResult.first { $0.relativePath == "apps/admin" }?.hasExample == false, "example 없음")
 
-        // package.json workspaces (yarn/npm/turbo/nx)
+        // package.json workspaces (yarn/npm/turbo/nx) — 루트에 .env.example이 있는 경우
         let npm = base.appendingPathComponent("npm-repo")
         try fm.createDirectory(at: npm, withIntermediateDirectories: true)
         try #"{"workspaces": ["packages/**"]}"#.write(
             to: npm.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+        try "ROOT_KEY=".write(to: npm.appendingPathComponent(".env.example"), atomically: true, encoding: .utf8)
         try makePackage(npm, "packages/core")
         let npmResult = MonorepoScanner.scan(rootURL: npm)
-        assert(npmResult.map(\.relativePath) == ["packages/core"], "npm workspaces (got \(npmResult.map(\.relativePath)))")
+        assert(npmResult.map(\.relativePath) == [".", "packages/core"],
+               "npm workspaces — 루트 포함 (got \(npmResult.map(\.relativePath)))")
+        assert(npmResult.first { $0.relativePath == "." }?.hasExample == true, "루트 example 감지")
 
         // 모노레포 아님 → 빈 결과 (§3.5: 루트 Target 하나만 유지)
         let plain = base.appendingPathComponent("plain")

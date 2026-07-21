@@ -1,7 +1,6 @@
 import SwiftUI
 import SwiftData
 import AppKit
-import UniformTypeIdentifiers
 
 /// 변수 목록/편집 (PRD §3.3) + Import 진입점 (§3.12). (선택된 Target, 선택된 Environment) 기준.
 struct VariablesView: View {
@@ -12,7 +11,6 @@ struct VariablesView: View {
     @State private var search = ""
     @State private var showAdd = false
     @State private var addSheetKey = ""
-    @State private var showFilePicker = false
     @State private var importPlan: (items: [ImportService.Item], warnings: [String])?
     @State private var errorMessage: String?
     @State private var pendingExampleContent: String?   // §3.17 덮어쓰기 확인 대기 중인 내용
@@ -62,12 +60,13 @@ struct VariablesView: View {
             } label: {
                 Label("Copy as…", systemImage: "doc.on.clipboard")
             }
-            .help("현재 Target × Environment 전체를 클립보드로 (§3.20)")
+            .help("현재 목록 전체를 dotenv / Shell exports / JSON 포맷으로 복사")
             Button("Example 생성", systemImage: "doc.badge.gearshape") { generateExample() }
-                .help("Variables로부터 \(target.examplePath) 역생성 (§3.17)")
-            Button("Import", systemImage: "square.and.arrow.up") { showFilePicker = true }
-                .help("기존 .env 파일 가져오기")
+                .help("현재 변수들로부터 \(target.examplePath) 파일 생성")
+            Button("Import", systemImage: "square.and.arrow.up") { pickImportFile() }
+                .help("기존 .env 파일을 가져와 변수로 등록")
             Button("키 추가", systemImage: "plus") { addSheetKey = ""; showAdd = true }
+                .help("새 변수 추가")
         }
         .confirmationDialog("\(target.examplePath)이 이미 있고 내용이 다릅니다. 덮어쓸까요?",
                             isPresented: .constant(pendingExampleContent != nil), titleVisibility: .visible) {
@@ -80,15 +79,11 @@ struct VariablesView: View {
         .sheet(isPresented: $showAdd) {
             AddVariableSheet(target: target, environmentName: environmentName, initialKey: addSheetKey)
         }
-        .sheet(isPresented: .constant(importPlan != nil), onDismiss: { importPlan = nil }) {
+        .sheet(isPresented: Binding(presence: $importPlan)) {
             if let plan = importPlan {
                 ImportSheet(items: plan.items, warnings: plan.warnings,
                             target: target, environmentName: environmentName)
             }
-        }
-        .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.item]) { result in
-            guard case .success(let url) = result else { return }
-            importFile(url)
         }
         .onChange(of: pendingAddKey, initial: true) {
             if let key = pendingAddKey {
@@ -138,6 +133,24 @@ struct VariablesView: View {
             try context.save()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// fileImporter는 조상 뷰(RepositoryDetailView)의 fileImporter와 충돌해 패널이 열리지 않고,
+    /// 숨김 파일인 .env가 목록에 보이지도 않아 NSOpenPanel을 직접 사용한다.
+    private func pickImportFile() {
+        let panel = NSOpenPanel()
+        panel.showsHiddenFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        if let repo = target.repository, let rootURL = RepositoryService.resolveBookmark(repo) {
+            panel.directoryURL = target.relativePath == "."
+                ? rootURL
+                : rootURL.appendingPathComponent(target.relativePath)
+        }
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            importFile(url)
         }
     }
 

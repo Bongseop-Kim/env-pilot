@@ -20,11 +20,16 @@ enum MonorepoScanner {
 
         let fm = FileManager.default
         var seen = Set<String>()
-        var candidates: [Candidate] = []
+        // workspace 루트 자체도 후보 — 루트에 .env.example을 두는 모노레포가 흔하다
+        var candidates: [Candidate] = [Candidate(
+            relativePath: ".",
+            hasExample: fm.fileExists(atPath: rootURL.appendingPathComponent(".env.example").path)
+        )]
         for glob in globs where !glob.hasPrefix("!") {   // negation 패턴은 무시
             for dir in resolve(glob: glob, root: rootURL) {
                 let rel = String(dir.standardizedFileURL.path.dropFirst(rootURL.standardizedFileURL.path.count + 1))
-                guard !seen.contains(rel), !rel.contains("node_modules"),
+                guard !rel.isEmpty,   // 루트 자체가 glob에 매칭되면 "." 후보와 중복
+                      !seen.contains(rel), !rel.contains("node_modules"),
                       fm.fileExists(atPath: dir.appendingPathComponent("package.json").path)
                 else { continue }
                 seen.insert(rel)

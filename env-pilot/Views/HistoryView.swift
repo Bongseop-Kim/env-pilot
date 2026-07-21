@@ -7,6 +7,7 @@ struct HistoryView: View {
     @Environment(\.modelContext) private var context
     @State private var repositoryFilter = "전체"
     @State private var environmentFilter = "전체"
+    @State private var showDeleteAllConfirm = false
 
     private var filtered: [HistoryEntry] {
         entries.filter {
@@ -32,6 +33,9 @@ struct HistoryView: View {
                         Section(dayLabel(group.day)) {
                             ForEach(group.entries) { entry in
                                 row(entry)
+                                    .contextMenu {
+                                        Button("삭제", role: .destructive) { delete(entry) }
+                                    }
                             }
                         }
                     }
@@ -44,12 +48,35 @@ struct HistoryView: View {
                 Text("전체 Repository").tag("전체")
                 ForEach(Set(entries.map(\.repositoryName)).sorted(), id: \.self) { Text($0).tag($0) }
             }
+            .help("Repository별 이력 필터")
             Picker("Environment", selection: $environmentFilter) {
                 Text("전체 Environment").tag("전체")
                 ForEach(Set(entries.map(\.environmentName)).sorted(), id: \.self) { Text($0).tag($0) }
             }
+            .help("Environment별 이력 필터")
+            Button("이력 삭제", systemImage: "trash") { showDeleteAllConfirm = true }
+                .help(repositoryFilter == "전체" && environmentFilter == "전체"
+                      ? "전체 이력 삭제" : "필터에 표시된 이력 삭제")
+                .disabled(filtered.isEmpty)
+        }
+        .confirmationDialog("표시된 이력 \(filtered.count)건을 삭제할까요?",
+                            isPresented: $showDeleteAllConfirm) {
+            Button("삭제", role: .destructive) { deleteFiltered() }
+        } message: {
+            Text("삭제한 이력은 복구할 수 없습니다.")
         }
         .task { trim() }
+    }
+
+    private func delete(_ entry: HistoryEntry) {
+        context.delete(entry)
+        try? context.save()
+    }
+
+    /// 현재 필터에 표시된 이력만 삭제 — 필터가 "전체"면 전체 삭제와 동일.
+    private func deleteFiltered() {
+        for entry in filtered { context.delete(entry) }
+        try? context.save()
     }
 
     private func row(_ entry: HistoryEntry) -> some View {

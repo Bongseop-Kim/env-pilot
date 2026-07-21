@@ -59,12 +59,53 @@ struct ContentView: View {
                 }
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 220)
-            .toolbar {
-                Button("Repository 추가", systemImage: "plus") { showImporter = true }
-                Button(".envide 가져오기", systemImage: "square.and.arrow.down.on.square") {
-                    showBundleImporter = true
+            // 사이드바 toolbar는 접기/펼치기 후 아이템이 사라지는 macOS 버그가 있어 하단 바로 배치.
+            // fileImporter는 같은 뷰에 2개 붙이면 한쪽이 동작하지 않아 버튼별로 분리.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(spacing: 0) {
+                    Divider()
+                    HStack {
+                        Button {
+                            showImporter = true
+                        } label: {
+                            Label("Repository 추가", systemImage: "plus")
+                        }
+                        .help("프로젝트 폴더를 Repository로 등록")
+                        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.folder]) { result in
+                            guard case .success(let url) = result, let workspace = workspaces.first else { return }
+                            do {
+                                let repo = try RepositoryService.register(
+                                    folderURL: url, workspace: workspace, context: context)
+                                selection = .repository(repo.persistentModelID)
+                            } catch {
+                                errorMessage = error.localizedDescription
+                            }
+                        }
+
+                        Spacer()
+
+                        Button {
+                            showBundleImporter = true
+                        } label: {
+                            Image(systemName: "square.and.arrow.down.on.square")
+                        }
+                        .help(".envide 번들 가져오기 — 다른 Mac이나 팀원이 내보낸 환경변수 묶음")
+                        .fileImporter(isPresented: $showBundleImporter,
+                                      allowedContentTypes: [.envide, .json]) { result in
+                            guard case .success(let url) = result else { return }
+                            let hasAccess = url.startAccessingSecurityScopedResource()
+                            defer { if hasAccess { url.stopAccessingSecurityScopedResource() } }
+                            do {
+                                bundleData = try Data(contentsOf: url)
+                            } catch {
+                                errorMessage = error.localizedDescription
+                            }
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .padding(8)
                 }
-                .help(".envide 번들 가져오기 (§3.14)")
+                .background(.bar)
             }
             .overlay {
                 if repositories.isEmpty {
@@ -99,28 +140,10 @@ struct ContentView: View {
                 }
                 .pickerStyle(.menu)
                 .fixedSize()
+                .help("Environment 전환 — Variables/Health/Generate가 이 환경 기준으로 동작합니다")
             }
         }
-        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.folder]) { result in
-            guard case .success(let url) = result, let workspace = workspaces.first else { return }
-            do {
-                let repo = try RepositoryService.register(folderURL: url, workspace: workspace, context: context)
-                selection = .repository(repo.persistentModelID)
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        }
-        .fileImporter(isPresented: $showBundleImporter, allowedContentTypes: [.envide, .json]) { result in
-            guard case .success(let url) = result else { return }
-            let hasAccess = url.startAccessingSecurityScopedResource()
-            defer { if hasAccess { url.stopAccessingSecurityScopedResource() } }
-            do {
-                bundleData = try Data(contentsOf: url)
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        }
-        .sheet(isPresented: .constant(bundleData != nil), onDismiss: { bundleData = nil }) {
+        .sheet(isPresented: Binding(presence: $bundleData)) {
             if let bundleData, let workspace = workspaces.first {
                 BundleImportSheet(data: bundleData, workspace: workspace)
             }
@@ -202,15 +225,13 @@ struct RepositoryDetailView: View {
             tabContent
         }
         .frame(maxHeight: .infinity, alignment: .top)
-        .navigationTitle(repo.name)
-        .navigationSubtitle("\(selectedTargetPath) · \(environmentName)")
         .toolbar {
             Button("Scan", systemImage: "arrow.trianglehead.2.clockwise") { scanMonorepo(auto: false) }
-                .help("Monorepo Target 탐색 및 example 변경 감지")
+                .help("Scan — Monorepo Target 탐색 및 .env.example 변경 감지")
             Button("Generate", systemImage: "square.and.arrow.down") { prepareGenerate() }
-                .help("\(environmentName) 기준으로 .env 파일 생성")
+                .help("Generate — \(environmentName) 환경 기준으로 .env 파일 생성")
             Button("Export", systemImage: "square.and.arrow.up") { showExport = true }
-                .help(".envide 번들로 내보내기 (§3.14)")
+                .help("Export — .envide 번들로 내보내기 (다른 Mac·팀원과 공유)")
         }
         .sheet(isPresented: $showExport) {
             if let workspace = repo.workspace {
@@ -227,16 +248,14 @@ struct RepositoryDetailView: View {
             refreshDiffs()   // git pull 후 앱 전환 시 감지 (§3.6)
             refreshHealth()
         }
-        .sheet(isPresented: .constant(scanCandidates != nil), onDismiss: { scanCandidates = nil }) {
+        .sheet(isPresented: Binding(presence: $scanCandidates), onDismiss: {
+            refreshDiffs()
+        }) {
             if let candidates = scanCandidates {
-                TargetScanSheet(repo: repo, candidates: candidates) {
-                    scanCandidates = nil
-                    refreshDiffs()
-                }
+                TargetScanSheet(repo: repo, candidates: candidates)
             }
         }
-        .sheet(isPresented: .constant(driftImportPlan != nil), onDismiss: {
-            driftImportPlan = nil
+        .sheet(isPresented: Binding(presence: $driftImportPlan), onDismiss: {
             refreshDiffs()
         }) {
             if let plan = driftImportPlan {
@@ -244,8 +263,7 @@ struct RepositoryDetailView: View {
                             target: plan.target, environmentName: environmentName)
             }
         }
-        .sheet(isPresented: .constant(generatePlans != nil), onDismiss: {
-            generatePlans = nil
+        .sheet(isPresented: Binding(presence: $generatePlans), onDismiss: {
             refreshHealth()
             refreshDiffs()   // Generate 후 drift 기준점 갱신 반영 (§3.18)
         }) {
@@ -376,10 +394,10 @@ struct RepositoryDetailView: View {
             return
         }
         let existingPaths = Set(targets.map(\.relativePath))
-        let newCandidates = MonorepoScanner.scan(rootURL: rootURL)
-            .filter { !existingPaths.contains($0.relativePath) }
-        if !newCandidates.isEmpty {
-            scanCandidates = newCandidates
+        let candidates = MonorepoScanner.scan(rootURL: rootURL)
+        // 이미 등록된 Target도 시트에 "추가됨"으로 표시 — 신규 후보가 있을 때만 시트를 띄운다
+        if candidates.contains(where: { !existingPaths.contains($0.relativePath) }) {
+            scanCandidates = candidates
         } else if !auto {
             generateError = "새로운 Monorepo Target 후보가 없습니다."
         }
