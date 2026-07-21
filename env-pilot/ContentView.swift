@@ -66,11 +66,20 @@ struct ContentView: View {
                                     .foregroundStyle(status.color)
                                     .font(SeedTypography.caption)
                             }
+                            Menu {
+                                Button("삭제", systemImage: "trash", role: .destructive) {
+                                    repoPendingDelete = repo
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis")
+                            }
+                            .menuStyle(.button)
+                            .buttonStyle(.borderless)
+                            .menuIndicator(.hidden)
+                            .fixedSize()
+                            .help("더보기")
                         }
                         .tag(SidebarItem.repository(repo.persistentModelID))
-                        .contextMenu {
-                            Button("삭제", role: .destructive) { repoPendingDelete = repo }
-                        }
                     }
                 }
                 Section {
@@ -584,6 +593,12 @@ struct RepositoryDetailView: View {
         }
     }
 
+    /// 사이드바 뱃지와 같은 기준(§3.8 최악 값)으로 Health 탭에 상태 점을 표시한다.
+    private var tabBadges: [DetailTab: Color] {
+        let status = HealthService.overall(healthItems)
+        return status == .healthy ? [:] : [.health: status.color]
+    }
+
     /// Variables에서만 실제 env 파일을 선택한다. 동기화 액션은 콘텐츠의 diff 배너에 둔다.
     private var header: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -623,11 +638,11 @@ struct RepositoryDetailView: View {
             .padding(.bottom, SeedSpacing.x1)
 
             SeedTabs(selection: $tab, items: [
-                (DetailTab.variables, "Variables"),
-                (DetailTab.accounts, "Accounts"),
-                (DetailTab.health, "Health"),
-                (DetailTab.gitChanges, "Changes"),
-            ])
+                (DetailTab.variables, "Variables", "curlybraces"),
+                (DetailTab.accounts, "Accounts", "person.badge.key"),
+                (DetailTab.health, "Health", "checkmark.shield"),
+                (DetailTab.gitChanges, "Changes", "arrow.triangle.2.circlepath"),
+            ], badges: tabBadges)
             .padding(.horizontal, SeedSpacing.x4)
             .frame(maxWidth: .infinity, alignment: .leading)
             .overlay(alignment: .bottom) { SeedDivider() }   // 탭 인디케이터가 이 선 위에 겹친다

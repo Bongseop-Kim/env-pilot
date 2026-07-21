@@ -11,6 +11,7 @@ struct CredentialsView: View {
     @State private var showAdd = false
     @State private var errorMessage: String?
     @State private var snackbar: SeedSnackbarMessage?
+    @State private var credentialPendingDelete: Credential?
 
     private var credentials: [Credential] {
         (repo.credentials ?? [])
@@ -27,13 +28,8 @@ struct CredentialsView: View {
         List {
             ForEach(credentials) { credential in
                 CredentialRow(credential: credential, onError: { errorMessage = $0 },
-                              onNotify: { snackbar = $0 })
-                    .contextMenu {
-                        Button("삭제", role: .destructive) {
-                            do { try CredentialService.delete(credential, context: context) }
-                            catch { errorMessage = error.localizedDescription }
-                        }
-                    }
+                              onNotify: { snackbar = $0 },
+                              onDelete: { credentialPendingDelete = credential })
             }
         }
         .searchable(text: $search, placement: .toolbar, prompt: "이름, 아이디 또는 주소 검색")
@@ -51,6 +47,20 @@ struct CredentialsView: View {
             Button("계정 추가", systemImage: "plus") { showAdd = true }
                 .help("이 프로젝트에서 쓰는 계정 추가 (비밀번호는 Keychain에 저장)")
         }
+        .confirmationDialog(
+            "'\(credentialPendingDelete?.label ?? "")' 계정을 삭제할까요?",
+            isPresented: Binding(presence: $credentialPendingDelete), titleVisibility: .visible
+        ) {
+            Button("삭제", role: .destructive) {
+                if let credential = credentialPendingDelete {
+                    do { try CredentialService.delete(credential, context: context) }
+                    catch { errorMessage = error.localizedDescription }
+                }
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("Keychain의 비밀번호가 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.")
+        }
         .sheet(isPresented: $showAdd) {
             AddCredentialSheet(repo: repo)
         }
@@ -59,11 +69,12 @@ struct CredentialsView: View {
     }
 }
 
-/// 한 계정의 행: 아이디 복사, 비밀번호 마스킹(클릭 시 일시 표시)/복사, 주소 열기.
+/// 한 계정의 행: 아이디 복사, 비밀번호 마스킹(클릭 시 일시 표시)/복사, 주소 열기, 더보기 메뉴.
 private struct CredentialRow: View {
     let credential: Credential
     let onError: (String) -> Void
     let onNotify: (SeedSnackbarMessage) -> Void
+    let onDelete: () -> Void
     @Environment(\.modelContext) private var context
     @State private var passwordText = ""
     @State private var revealed = false
@@ -73,7 +84,9 @@ private struct CredentialRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(credential.label).fontWeight(.medium)
                 if let note = credential.note {
-                    Text(note).font(SeedTypography.body).foregroundStyle(SeedColor.fgNeutralMuted).lineLimit(1)
+                    Text(note).font(SeedTypography.caption)
+                        .foregroundStyle(SeedColor.fgNeutralMuted).lineLimit(1)
+                        .help(note)
                 }
             }
             .frame(width: 180, alignment: .leading)
@@ -120,6 +133,17 @@ private struct CredentialRow: View {
             .labelStyle(.iconOnly)
             .buttonStyle(.seedIcon())
             .help("비밀번호 복사")
+
+            Menu {
+                Button("삭제", systemImage: "trash", role: .destructive, action: onDelete)
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .menuStyle(.button)
+            .buttonStyle(.seedIcon())
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("더보기")
         }
         .seedListRow()
     }

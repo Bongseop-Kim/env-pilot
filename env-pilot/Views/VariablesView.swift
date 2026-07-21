@@ -12,6 +12,7 @@ struct VariablesView: View {
     @State private var errorMessage: String?
     @State private var snackbar: SeedSnackbarMessage?
     @State private var pendingExampleContent: String?   // §3.17 덮어쓰기 확인 대기 중인 내용
+    @State private var variablePendingDelete: Variable?
 
     private var variables: [Variable] {
         (target.variables ?? [])
@@ -28,16 +29,9 @@ struct VariablesView: View {
         List {
             ForEach(variables) { variable in
                 VariableRow(variable: variable, onError: { errorMessage = $0 },
-                            onNotify: { snackbar = $0 })
-                    .contextMenu {
-                        Button(variable.isSecret ? "Secret 해제" : "Secret으로 전환") {
-                            setSecret(variable, to: !variable.isSecret)
-                        }
-                        Button("삭제", role: .destructive) {
-                            do { try VariableService.delete(variable, context: context) }
-                            catch { errorMessage = error.localizedDescription }
-                        }
-                    }
+                            onNotify: { snackbar = $0 },
+                            onToggleSecret: { setSecret(variable, to: !variable.isSecret) },
+                            onDelete: { variablePendingDelete = variable })
             }
         }
         .searchable(text: $search, placement: .toolbar, prompt: "키 또는 설명 검색")
@@ -64,6 +58,22 @@ struct VariablesView: View {
                 }
             }
             .help("현재 env 파일을 포맷별로 복사")
+        }
+        .confirmationDialog(
+            "\(variablePendingDelete?.key ?? "") 키를 삭제할까요?",
+            isPresented: Binding(presence: $variablePendingDelete), titleVisibility: .visible
+        ) {
+            Button("삭제", role: .destructive) {
+                if let variable = variablePendingDelete {
+                    do { try VariableService.delete(variable, context: context) }
+                    catch { errorMessage = error.localizedDescription }
+                }
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text(variablePendingDelete?.isSecret == true
+                 ? "Keychain의 Secret 값이 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다."
+                 : "이 작업은 되돌릴 수 없습니다.")
         }
         .confirmationDialog("\(target.examplePath)이 이미 있고 내용이 다릅니다. 덮어쓸까요?",
                             isPresented: .constant(pendingExampleContent != nil), titleVisibility: .visible) {
@@ -145,11 +155,13 @@ struct VariablesView: View {
 
 }
 
-/// 한 변수의 행: 값 인라인 편집(Enter 또는 포커스 이탈 시 저장), Secret 마스킹(클릭 시 일시 표시), 복사.
+/// 한 변수의 행: 값 인라인 편집(Enter 또는 포커스 이탈 시 저장), Secret 마스킹(클릭 시 일시 표시), 복사, 더보기 메뉴.
 private struct VariableRow: View {
     let variable: Variable
     let onError: (String) -> Void
     let onNotify: (SeedSnackbarMessage) -> Void
+    let onToggleSecret: () -> Void
+    let onDelete: () -> Void
     @Environment(\.modelContext) private var context
     @State private var valueText = ""
     @State private var noteText = ""
@@ -188,8 +200,9 @@ private struct VariableRow: View {
 
             TextField("설명", text: $noteText)
                 .textFieldStyle(.plain)
+                .font(SeedTypography.caption)
                 .foregroundStyle(SeedColor.fgNeutralMuted)
-                .frame(width: 180)
+                .frame(width: 110)
                 .focused($focusedField, equals: .note)
                 .onSubmit(commitNote)
 
@@ -215,6 +228,21 @@ private struct VariableRow: View {
             .labelStyle(.iconOnly)
             .buttonStyle(.seedIcon())
             .help(variable.isSecret ? "값 복사 — 30초 후 클립보드에서 자동 삭제됩니다" : "값 복사")
+
+            Menu {
+                Button(variable.isSecret ? "Secret 해제" : "Secret으로 전환",
+                       systemImage: variable.isSecret ? "lock.open" : "lock",
+                       action: onToggleSecret)
+                Divider()
+                Button("삭제", systemImage: "trash", role: .destructive, action: onDelete)
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .menuStyle(.button)
+            .buttonStyle(.seedIcon())
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("더보기")
         }
         .seedListRow()
         .onAppear {
