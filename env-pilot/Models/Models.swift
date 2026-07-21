@@ -44,9 +44,29 @@ final class Repository {
     var workspace: Workspace?
     @Relationship(deleteRule: .cascade, inverse: \Target.repository)
     var targets: [Target]? = []
+    @Relationship(deleteRule: .cascade, inverse: \Credential.repository)
+    var credentials: [Credential]? = []
 
     init(name: String) {
         self.name = name
+    }
+}
+
+/// 프로젝트 스코프 계정 (§확장) — 스테이징 테스트 계정, 관리자 콘솔 로그인 등.
+/// 비밀번호는 Variable의 Secret과 동일하게 Keychain에만 저장 (계정 키: "envide.cred.{uuid}").
+@Model
+final class Credential {
+    var uuid: String = UUID().uuidString   // Keychain 계정 키용 안정 식별자
+    var label: String = ""                 // 예: "Staging 관리자"
+    var username: String = ""
+    var urlString: String? = nil           // 웹 주소(https://…) 또는 앱 스키마(myapp://…)
+    var note: String? = nil
+    var updatedAt: Date = Date()
+    var repository: Repository?
+
+    init(label: String, username: String = "") {
+        self.label = label
+        self.username = username
     }
 }
 
@@ -116,7 +136,8 @@ extension Target {
 
 extension Workspace {
     static let allModels: [any PersistentModel.Type] =
-        [Workspace.self, EnvEnvironment.self, Repository.self, Target.self, Variable.self, HistoryEntry.self]
+        [Workspace.self, EnvEnvironment.self, Repository.self, Target.self, Variable.self,
+         Credential.self, HistoryEntry.self]
 
     static let defaultEnvironmentNames = ["Local", "Development", "Staging", "Production"]
 }

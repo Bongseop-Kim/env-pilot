@@ -210,7 +210,7 @@ struct RepositoryDetailView: View {
     @State private var pendingAddKey: String?
     @State private var showExport = false
 
-    enum DetailTab { case variables, compare, health, gitChanges }
+    enum DetailTab { case variables, accounts, compare, health, gitChanges }
 
     private var isLinked: Bool { RepositoryService.resolveBookmark(repo) != nil }
     private var targets: [Target] { (repo.targets ?? []).sorted { $0.relativePath < $1.relativePath } }
@@ -294,6 +294,8 @@ struct RepositoryDetailView: View {
                 Text("Target이 없습니다").foregroundStyle(.secondary)
                     .frame(maxHeight: .infinity)
             }
+        case .accounts:
+            CredentialsView(repo: repo)
         case .compare:
             if let target = selectedTarget {
                 CompareView(target: target, environmentNames: environmentNames)
@@ -433,6 +435,7 @@ struct RepositoryDetailView: View {
             HStack {
                 Picker("", selection: $tab) {
                     Text("Variables").tag(DetailTab.variables)
+                    Text("Accounts").tag(DetailTab.accounts)
                     Text("Compare").tag(DetailTab.compare)
                     Text("Health").tag(DetailTab.health)
                     Text(diffCount > 0 ? "Git Changes (\(diffCount))" : "Git Changes")
