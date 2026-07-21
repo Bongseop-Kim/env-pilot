@@ -73,6 +73,7 @@ private struct CompareCell: View {
     let onError: (String) -> Void
     @Environment(\.modelContext) private var context
     @State private var text = ""
+    @FocusState private var focused: Bool
 
     private var variable: Variable? {
         (target.variables ?? []).first {
@@ -84,7 +85,8 @@ private struct CompareCell: View {
         HStack(spacing: 4) {
             cellContent
             if !duplicateWith.isEmpty {
-                Text("🟡")
+                Image(systemName: "equal.circle.fill")
+                    .foregroundStyle(.yellow)
                     .help("\(duplicateWith.joined(separator: ", "))와 값이 동일합니다")
             }
         }
@@ -102,10 +104,12 @@ private struct CompareCell: View {
                     TextField("빈 값", text: $text)
                         .textFieldStyle(.roundedBorder)
                         .fontDesign(.monospaced)
+                        .focused($focused)
                         .onAppear { text = variable.value }
-                        .onSubmit {
-                            do { try VariableService.updateValue(variable, to: text, context: context) }
-                            catch { onError(error.localizedDescription) }
+                        .onSubmit { commit(variable) }
+                        .onChange(of: focused) { _, isFocused in
+                            // Enter 없이 다른 셀을 클릭해도 저장
+                            if !isFocused { commit(variable) }
                         }
                 }
             } else {
@@ -122,5 +126,11 @@ private struct CompareCell: View {
                 .buttonStyle(.plain)
             }
         }
+    }
+
+    private func commit(_ variable: Variable) {
+        guard text != variable.value else { return }
+        do { try VariableService.updateValue(variable, to: text, context: context) }
+        catch { onError(error.localizedDescription) }
     }
 }

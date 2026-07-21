@@ -96,7 +96,8 @@ struct HealthView: View {
     @ViewBuilder private func healthRows(_ items: [HealthService.Item]) -> some View {
         ForEach(items) { item in
             HStack(alignment: .top) {
-                Text(item.status.symbol)
+                Image(systemName: item.status.iconName)
+                    .foregroundStyle(item.status.color)
                 Text(item.environmentName).frame(width: 110, alignment: .leading)
                 keyChips(item)
                 Spacer()

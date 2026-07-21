@@ -23,6 +23,7 @@ struct ContentView: View {
     @State private var bundleData: Data?
     @State private var errorMessage: String?
     @State private var healthByRepo: [String: HealthStatus] = [:]
+    @State private var repoPendingDelete: Repository?
 
     private var environmentNames: [String] {
         (workspaces.first?.environments ?? [])
@@ -44,12 +45,14 @@ struct ContentView: View {
                             Label(repo.name, systemImage: "folder")
                             Spacer()
                             if let status = healthByRepo[repo.uuid], status != .healthy {
-                                Text(status.symbol).font(.caption2)
+                                Image(systemName: status.iconName)
+                                    .foregroundStyle(status.color)
+                                    .font(.caption)
                             }
                         }
                         .tag(SidebarItem.repository(repo.persistentModelID))
                         .contextMenu {
-                            Button("삭제", role: .destructive) { deleteRepo(repo) }
+                            Button("삭제", role: .destructive) { repoPendingDelete = repo }
                         }
                     }
                 }
@@ -109,12 +112,25 @@ struct ContentView: View {
             }
             .overlay {
                 if repositories.isEmpty {
-                    ContentUnavailableView(
-                        "Repository 없음",
-                        systemImage: "folder.badge.plus",
-                        description: Text("+ 버튼으로 프로젝트 폴더를 추가하세요")
-                    )
+                    ContentUnavailableView {
+                        Label("Repository 없음", systemImage: "folder.badge.plus")
+                    } description: {
+                        Text("프로젝트 폴더를 추가하세요")
+                    } actions: {
+                        Button("Repository 추가") { showImporter = true }
+                    }
                 }
+            }
+            .confirmationDialog(
+                "'\(repoPendingDelete?.name ?? "")' Repository를 삭제할까요?",
+                isPresented: Binding(presence: $repoPendingDelete), titleVisibility: .visible
+            ) {
+                Button("삭제", role: .destructive) {
+                    if let repo = repoPendingDelete { deleteRepo(repo) }
+                }
+                Button("취소", role: .cancel) {}
+            } message: {
+                Text("Secret을 포함한 모든 변수가 함께 삭제됩니다. 디스크의 파일은 삭제되지 않습니다.")
             }
         } detail: {
             switch selection {
@@ -228,9 +244,11 @@ struct RepositoryDetailView: View {
         .frame(maxHeight: .infinity, alignment: .top)
         .toolbar {
             Button("Scan", systemImage: "arrow.trianglehead.2.clockwise") { scanMonorepo(auto: false) }
-                .help("Scan — Monorepo Target 탐색 및 .env.example 변경 감지")
-            Button("Generate", systemImage: "square.and.arrow.down") { prepareGenerate() }
-                .help("Generate — \(environmentName) 환경 기준으로 .env 파일 생성")
+                .help("Scan — Monorepo Target 탐색 및 .env.example 변경 감지 (⌘R)")
+                .keyboardShortcut("r", modifiers: .command)
+            Button("Generate", systemImage: "doc.badge.plus") { prepareGenerate() }
+                .help("Generate — \(environmentName) 환경 기준으로 .env 파일 생성 (⌘G)")
+                .keyboardShortcut("g", modifiers: .command)
             Button("Export", systemImage: "square.and.arrow.up") { showExport = true }
                 .help("Export — .envide 번들로 내보내기 (다른 Mac·팀원과 공유)")
         }
@@ -438,11 +456,21 @@ struct RepositoryDetailView: View {
                     Text("Accounts").tag(DetailTab.accounts)
                     Text("Compare").tag(DetailTab.compare)
                     Text("Health").tag(DetailTab.health)
-                    Text(diffCount > 0 ? "Git Changes (\(diffCount))" : "Git Changes")
-                        .tag(DetailTab.gitChanges)
+                    Text("Git Changes").tag(DetailTab.gitChanges)
                 }
                 .pickerStyle(.segmented)
                 .fixedSize()
+
+                // 라벨에 숫자를 넣으면 segmented control 폭이 흔들려 별도 뱃지로 표시
+                if diffCount > 0 {
+                    Text("\(diffCount)")
+                        .font(.caption2.bold())
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(.orange.opacity(0.15), in: Capsule())
+                        .help("처리 대기 중인 Git 변경 \(diffCount)건")
+                }
 
                 if (tab == .variables || tab == .compare) && targets.count > 1 {
                     Picker("Target", selection: $selectedTargetPath) {

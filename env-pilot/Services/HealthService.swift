@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import SwiftUI
 
 /// Health 판정 (PRD §3.8) — Target × Environment 단위, example 키 기준.
 enum HealthStatus: Int, Comparable {
@@ -9,11 +10,28 @@ enum HealthStatus: Int, Comparable {
 
     static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
 
+    /// 메뉴바 등 텍스트 전용 컨텍스트용. 뷰에서는 iconName + color 사용.
     var symbol: String {
         switch self {
         case .healthy: "🟢"
         case .warning: "🟡"
         case .critical: "🔴"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .healthy: "checkmark.circle.fill"
+        case .warning: "exclamationmark.triangle.fill"
+        case .critical: "xmark.circle.fill"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .healthy: .green
+        case .warning: .yellow
+        case .critical: .red
         }
     }
 }

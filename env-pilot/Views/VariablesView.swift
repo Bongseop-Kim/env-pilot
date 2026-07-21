@@ -53,20 +53,26 @@ struct VariablesView: View {
             }
         }
         .toolbar {
+            Button("키 추가", systemImage: "plus") { addSheetKey = ""; showAdd = true }
+                .help("새 변수 추가 (⌘N)")
+                .keyboardShortcut("n", modifiers: .command)
+            // 보조 액션은 하나로 묶어 툴바 과밀 방지 — 상위 툴바(Scan/Generate/Export)와 공존
             Menu {
-                ForEach(CopyFormat.allCases, id: \.self) { format in
-                    Button(format.rawValue) { copyAs(format) }
+                Button("Import — 기존 .env 가져오기", systemImage: "square.and.arrow.down") {
+                    pickImportFile()
+                }
+                Button("Example 생성 — \(target.examplePath)", systemImage: "doc.badge.gearshape") {
+                    generateExample()
+                }
+                Menu("Copy as…") {
+                    ForEach(CopyFormat.allCases, id: \.self) { format in
+                        Button(format.rawValue) { copyAs(format) }
+                    }
                 }
             } label: {
-                Label("Copy as…", systemImage: "doc.on.clipboard")
+                Label("더 보기", systemImage: "ellipsis.circle")
             }
-            .help("현재 목록 전체를 dotenv / Shell exports / JSON 포맷으로 복사")
-            Button("Example 생성", systemImage: "doc.badge.gearshape") { generateExample() }
-                .help("현재 변수들로부터 \(target.examplePath) 파일 생성")
-            Button("Import", systemImage: "square.and.arrow.up") { pickImportFile() }
-                .help("기존 .env 파일을 가져와 변수로 등록")
-            Button("키 추가", systemImage: "plus") { addSheetKey = ""; showAdd = true }
-                .help("새 변수 추가")
+            .help("Import · Example 생성 · 전체 복사")
         }
         .confirmationDialog("\(target.examplePath)이 이미 있고 내용이 다릅니다. 덮어쓸까요?",
                             isPresented: .constant(pendingExampleContent != nil), titleVisibility: .visible) {
@@ -171,15 +177,21 @@ struct VariablesView: View {
     }
 }
 
-/// 한 변수의 행: 값 인라인 편집, Secret 마스킹(클릭 시 일시 표시), 복사.
+/// 한 변수의 행: 값 인라인 편집(Enter 또는 포커스 이탈 시 저장), Secret 마스킹(클릭 시 일시 표시), 복사.
 private struct VariableRow: View {
     let variable: Variable
     let onError: (String) -> Void
     @Environment(\.modelContext) private var context
     @State private var valueText = ""
     @State private var noteText = ""
+    @State private var committedValue = ""   // blur 커밋 시 불필요한 저장 방지용 기준값
+    @State private var committedNote = ""
     @State private var revealed = false
-    @State private var showClipboardNote = false   // §3.16 복사 직후 안내
+    @State private var savedFlash = false    // 저장 직후 체크마크
+    @State private var copied = false        // 복사 직후 체크마크
+    @FocusState private var focusedField: Field?
+
+    private enum Field { case value, note }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -188,6 +200,7 @@ private struct VariableRow: View {
                     Image(systemName: "lock.fill").foregroundStyle(.secondary).font(.caption)
                 }
                 Text(variable.key).fontDesign(.monospaced).fontWeight(.medium)
+                    .help(variable.key)   // 고정폭 컬럼에서 잘린 긴 키 확인용
             }
             .frame(width: 220, alignment: .leading)
 
@@ -201,6 +214,7 @@ private struct VariableRow: View {
                 TextField("값 없음", text: $valueText)
                     .textFieldStyle(.plain)
                     .fontDesign(.monospaced)
+                    .focused($focusedField, equals: .value)
                     .onSubmit(commitValue)
             }
 
@@ -208,14 +222,16 @@ private struct VariableRow: View {
                 .textFieldStyle(.plain)
                 .foregroundStyle(.secondary)
                 .frame(width: 180)
+                .focused($focusedField, equals: .note)
                 .onSubmit(commitNote)
 
-            if showClipboardNote {
-                Text("30초 후 클립보드에서 삭제됨")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Button("복사", systemImage: "doc.on.doc") {
+            // 자리를 항상 확보해 나타났다 사라져도 레이아웃이 밀리지 않게
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .opacity(savedFlash ? 1 : 0)
+                .accessibilityLabel(savedFlash ? "저장됨" : "")
+
+            Button("복사", systemImage: copied ? "checkmark" : "doc.on.doc") {
                 Task {
                     if variable.isSecret {
                         guard await BiometricGate.authorize(reason: "\(variable.key) 값을 복사") else { return }
@@ -223,19 +239,26 @@ private struct VariableRow: View {
                     // Secret만 30초 후 자동 삭제 대상 (§3.16)
                     ClipboardService.copy(VariableService.value(of: variable),
                                           clearAfterDelay: variable.isSecret)
-                    if variable.isSecret {
-                        showClipboardNote = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { showClipboardNote = false }
-                    }
+                    copied = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { copied = false }
                 }
             }
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
+            .foregroundStyle(copied ? .green : .primary)
+            .help(variable.isSecret ? "값 복사 — 30초 후 클립보드에서 자동 삭제됩니다" : "값 복사")
         }
         .padding(.vertical, 2)
         .onAppear {
             valueText = variable.isSecret ? "" : variable.value
             noteText = variable.note ?? ""
+            committedValue = valueText
+            committedNote = noteText
+        }
+        .onChange(of: focusedField) { old, _ in
+            // Enter 없이 다른 곳을 클릭해도 저장 (§3.3 인라인 편집)
+            if old == .value { commitValue() }
+            if old == .note { commitNote() }
         }
     }
 
@@ -243,18 +266,32 @@ private struct VariableRow: View {
         Task {
             guard await BiometricGate.authorize(reason: "\(variable.key) 값을 표시") else { return }
             valueText = VariableService.value(of: variable)
+            committedValue = valueText
             revealed = true
         }
     }
 
+    private func flashSaved() {
+        savedFlash = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { savedFlash = false }
+    }
+
     private func commitValue() {
-        do { try VariableService.updateValue(variable, to: valueText, context: context) }
-        catch { onError(error.localizedDescription) }
+        guard valueText != committedValue else { return }
+        do {
+            try VariableService.updateValue(variable, to: valueText, context: context)
+            committedValue = valueText
+            flashSaved()
+        } catch { onError(error.localizedDescription) }
     }
 
     private func commitNote() {
-        do { try VariableService.updateNote(variable, to: noteText, context: context) }
-        catch { onError(error.localizedDescription) }
+        guard noteText != committedNote else { return }
+        do {
+            try VariableService.updateNote(variable, to: noteText, context: context)
+            committedNote = noteText
+            flashSaved()
+        } catch { onError(error.localizedDescription) }
     }
 }
 

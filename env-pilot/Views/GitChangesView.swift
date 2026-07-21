@@ -12,6 +12,7 @@ struct GitChangesView: View {
     let onIgnoreDrift: (GenerateService.Drift) -> Void
     @Environment(\.modelContext) private var context
     @State private var errorMessage: String?
+    @State private var pendingDelete: (key: String, target: Target)?   // 전 Environment 삭제는 확인 후 실행
 
     var body: some View {
         Group {
@@ -42,11 +43,11 @@ struct GitChangesView: View {
                             }
                             ForEach(diff.removedKeys, id: \.self) { key in
                                 DiffRow(symbol: "−", color: .red, key: key) {
-                                    action("삭제", role: .destructive) {
-                                        try ExampleDiffService.resolveRemoved(
-                                            key: key, action: .deleteFromAllEnvironments,
-                                            target: diff.target, context: context)
+                                    Button("삭제", role: .destructive) {
+                                        pendingDelete = (key, diff.target)
                                     }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
                                     action("무시") {
                                         try ExampleDiffService.resolveRemoved(
                                             key: key, action: .ignore, target: diff.target, context: context)
@@ -57,6 +58,23 @@ struct GitChangesView: View {
                     }
                 }
             }
+        }
+        .confirmationDialog(
+            "'\(pendingDelete?.key ?? "")'를 모든 Environment에서 삭제할까요?",
+            isPresented: Binding(presence: $pendingDelete), titleVisibility: .visible
+        ) {
+            Button("삭제", role: .destructive) {
+                guard let pending = pendingDelete else { return }
+                do {
+                    try ExampleDiffService.resolveRemoved(
+                        key: pending.key, action: .deleteFromAllEnvironments,
+                        target: pending.target, context: context)
+                    onChanged()
+                } catch { errorMessage = error.localizedDescription }
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("Secret이면 Keychain 값도 함께 삭제됩니다.")
         }
         .alert("오류", isPresented: .constant(errorMessage != nil)) {
             Button("확인") { errorMessage = nil }
