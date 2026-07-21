@@ -22,6 +22,7 @@ struct HealthView: View {
             && claudeEnvDenied == nil {
             ContentUnavailableView("판정 대상 없음", systemImage: "questionmark.circle",
                                    description: Text(".env.example이 있는 Target이 없습니다"))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)   // 상단 정렬 VStack 안에서 중앙 배치
         } else {
             List {
                 if allHealthy {

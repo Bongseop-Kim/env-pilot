@@ -22,6 +22,7 @@ struct GitChangesView: View {
                     systemImage: "checkmark.circle",
                     description: Text(".env.example과 출력 파일이 마지막 확인 시점과 일치합니다")
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)   // 상단 정렬 VStack 안에서 중앙 배치
             } else {
                 List {
                     driftSection

@@ -31,6 +31,7 @@ struct CompareView: View {
         if keys.isEmpty {
             ContentUnavailableView("키가 없습니다", systemImage: "key",
                                    description: Text("Variables 탭에서 키를 추가하세요"))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)   // 상단 정렬 VStack 안에서 중앙 배치
         } else {
             ScrollView([.horizontal, .vertical]) {
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
