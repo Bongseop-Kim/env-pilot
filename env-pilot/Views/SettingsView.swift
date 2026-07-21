@@ -2,28 +2,18 @@ import SwiftUI
 import SwiftData
 import ServiceManagement
 
-/// 설정 (PRD §4.5) — Workspace 이름, Repository별 Environment 목록(추가/삭제/순서), 기본 경로 패턴, 로그인 시 시작(§3.15).
+/// 설정 (PRD §4.5) — Workspace 이름, 기본 경로 패턴, 로그인 시 시작(§3.15).
+/// Environment 목록은 Repository별 관리 — 툴바 Environment 셀렉터 옆 편집 버튼(EnvironmentsEditor).
 struct SettingsView: View {
     @Environment(\.modelContext) private var context
     @Query private var workspaces: [Workspace]
-    @Query(sort: \Repository.createdAt) private var repositories: [Repository]
     @AppStorage("defaultExamplePath") private var defaultExamplePath = ".env.example"
     @AppStorage("defaultOutputPath") private var defaultOutputPath = ".env.local"
     @AppStorage("iCloudSyncEnabled") private var iCloudSyncEnabled = false
     @AppStorage(BiometricGate.settingKey) private var requireAuthForSecrets = true
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
-    @State private var newEnvironmentName = ""
-    @State private var deleteCandidate: EnvEnvironment?
-    @State private var deleteMessage = ""
-    @State private var selectedRepoUUID: String?
 
     private var workspace: Workspace? { workspaces.first }
-    private var selectedRepo: Repository? {
-        repositories.first { $0.uuid == selectedRepoUUID } ?? repositories.first
-    }
-    private var environments: [EnvEnvironment] {
-        (selectedRepo?.environments ?? []).sorted { $0.sortOrder < $1.sortOrder }
-    }
 
     var body: some View {
         Form {
@@ -32,42 +22,6 @@ struct SettingsView: View {
                     get: { workspace?.name ?? "" },
                     set: { workspace?.name = $0; try? context.save() }
                 ))
-            }
-
-            Section("Environments") {
-                if repositories.isEmpty {
-                    Text("Repository를 먼저 추가하세요. Environment는 Repository마다 따로 관리됩니다.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Picker("Repository", selection: Binding(
-                        get: { selectedRepo?.uuid ?? "" },
-                        set: { selectedRepoUUID = $0 }
-                    )) {
-                        ForEach(repositories, id: \.uuid) { Text($0.name).tag($0.uuid) }
-                    }
-                }
-                List {
-                    ForEach(environments) { environment in
-                        HStack {
-                            Image(systemName: "line.3.horizontal")
-                                .foregroundStyle(.tertiary)
-                            Text(environment.name)
-                            Spacer()
-                            Button("삭제", systemImage: "minus.circle") {
-                                askDelete(environment)
-                            }
-                            .labelStyle(.iconOnly)
-                            .buttonStyle(.borderless)
-                        }
-                    }
-                    .onMove(perform: move)
-                }
-                HStack {
-                    TextField("새 Environment 이름", text: $newEnvironmentName)
-                        .onSubmit(add)
-                    Button("추가", action: add)
-                        .disabled(!canAdd)
-                }
             }
 
             Section("일반") {
@@ -107,7 +61,60 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 480, height: 560)
+        .frame(width: 480, height: 440)
+    }
+}
+
+/// 선택된 Repository의 Environment 목록 편집 — 툴바 Environment 셀렉터 옆 버튼에서 시트로 표시.
+struct EnvironmentsEditor: View {
+    let repo: Repository
+    @Environment(\.modelContext) private var context
+    @Environment(\.dismiss) private var dismiss
+    @State private var newEnvironmentName = ""
+    @State private var deleteCandidate: EnvEnvironment?
+    @State private var deleteMessage = ""
+
+    private var environments: [EnvEnvironment] {
+        (repo.environments ?? []).sorted { $0.sortOrder < $1.sortOrder }
+    }
+
+    var body: some View {
+        Form {
+            Section("\(repo.name) — Environments") {
+                List {
+                    ForEach(environments) { environment in
+                        HStack {
+                            Image(systemName: "line.3.horizontal")
+                                .foregroundStyle(.tertiary)
+                            Text(environment.name)
+                            Spacer()
+                            Button("삭제", systemImage: "trash") {
+                                askDelete(environment)
+                            }
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                    .onMove(perform: move)
+                }
+                HStack {
+                    TextField("새 Environment 이름", text: $newEnvironmentName)
+                        .onSubmit(add)
+                    Button("추가", action: add)
+                        .disabled(!canAdd)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 380, height: 300)
+        .safeAreaInset(edge: .bottom) {
+            HStack {
+                Spacer()
+                Button("완료") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(12)
+        }
         .confirmationDialog(deleteMessage, isPresented: .constant(deleteCandidate != nil), titleVisibility: .visible) {
             Button("삭제", role: .destructive) { confirmDelete() }
             Button("취소", role: .cancel) { deleteCandidate = nil }
@@ -120,7 +127,7 @@ struct SettingsView: View {
     }
 
     private func add() {
-        guard canAdd, let repo = selectedRepo else { return }
+        guard canAdd else { return }
         let environment = EnvEnvironment(
             name: newEnvironmentName.trimmingCharacters(in: .whitespaces),
             sortOrder: (environments.last?.sortOrder ?? -1) + 1

@@ -147,5 +147,5 @@ extension Workspace {
         [Workspace.self, EnvEnvironment.self, Repository.self, Target.self, Variable.self,
          Credential.self, HistoryEntry.self]
 
-    static let defaultEnvironmentNames = ["Local", "Development", "Staging", "Production"]
+    static let defaultEnvironmentNames = ["Local", "Production"]
 }

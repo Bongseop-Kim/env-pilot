@@ -24,6 +24,7 @@ struct ContentView: View {
     @State private var errorMessage: String?
     @State private var healthByRepo: [String: HealthStatus] = [:]
     @State private var repoPendingDelete: Repository?
+    @State private var showEnvironmentsEditor = false
 
     // Environment는 Repository 소속 — 선택된 repo의 목록 기준
     private var environmentNames: [String] {
@@ -150,14 +151,28 @@ struct ContentView: View {
         .toolbar {
             // Environment 셀렉터 (PRD §4.2) — 선택된 Repository의 환경 목록 기준
             ToolbarItem(placement: .primaryAction) {
-                if !environmentNames.isEmpty {
-                    Picker("Environment", selection: $selectedEnvironment) {
-                        ForEach(environmentNames, id: \.self) { Text($0).tag($0) }
+                if selectedRepository != nil {
+                    HStack(spacing: 4) {
+                        if !environmentNames.isEmpty {
+                            Picker("Environment", selection: $selectedEnvironment) {
+                                ForEach(environmentNames, id: \.self) { Text($0).tag($0) }
+                            }
+                            .pickerStyle(.menu)
+                            .fixedSize()
+                            .help("Environment 전환 — Variables/Health/Generate가 이 환경 기준으로 동작합니다")
+                        }
+                        Button("Environment 편집", systemImage: "slider.horizontal.3") {
+                            showEnvironmentsEditor = true
+                        }
+                        .labelStyle(.iconOnly)
+                        .help("이 Repository의 Environment 목록 편집 (추가/삭제/순서)")
                     }
-                    .pickerStyle(.menu)
-                    .fixedSize()
-                    .help("Environment 전환 — Variables/Health/Generate가 이 환경 기준으로 동작합니다")
                 }
+            }
+        }
+        .sheet(isPresented: $showEnvironmentsEditor) {
+            if let repo = selectedRepository {
+                EnvironmentsEditor(repo: repo)
             }
         }
         .sheet(isPresented: Binding(presence: $bundleData)) {
@@ -176,6 +191,7 @@ struct ContentView: View {
             if !environmentNames.isEmpty && !environmentNames.contains(selectedEnvironment) {
                 selectedEnvironment = environmentNames.first!
             }
+            refreshSidebarHealth()   // Environment 추가/삭제 즉시 사이드바 뱃지 반영
         }
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -263,6 +279,9 @@ struct RepositoryDetailView: View {
             refreshDiffs()
             refreshHealth()
             autoScanIfFirstVisit()
+        }
+        .onChange(of: environmentNames) {
+            refreshHealth()   // Environment 추가/삭제 즉시 Health 탭 반영
         }
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didBecomeActiveNotification)) { _ in

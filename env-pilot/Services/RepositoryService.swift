@@ -54,7 +54,7 @@ enum RepositoryService {
         repo.workspace = workspace
         context.insert(repo)
 
-        // 시작점으로 기본 4종 — 프로젝트에 맞게 Settings에서 추가/삭제
+        // 시작점으로 기본 2종 — 프로젝트에 맞게 Settings에서 추가/삭제
         for (i, name) in Workspace.defaultEnvironmentNames.enumerated() {
             let env = EnvEnvironment(name: name, sortOrder: i)
             env.repository = repo

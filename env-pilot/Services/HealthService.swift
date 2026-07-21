@@ -23,7 +23,7 @@ enum HealthStatus: Int, Comparable {
         switch self {
         case .healthy: "checkmark.circle.fill"
         case .warning: "exclamationmark.triangle.fill"
-        case .critical: "xmark.circle.fill"
+        case .critical: "exclamationmark.octagon.fill"  // xmark.circle은 닫기 버튼처럼 보여 회피
         }
     }
 
