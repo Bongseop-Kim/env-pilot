@@ -40,14 +40,14 @@ struct SettingsView: View {
                 Toggle("Secret 표시·복사 시 인증 요구", isOn: $requireAuthForSecrets)
                 Text("Touch ID 또는 로그인 비밀번호로 승인합니다. 승인 후 60초간 재인증을 생략합니다.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SeedColor.fgNeutralMuted)
             }
 
             Section("동기화") {
                 Toggle("iCloud 동기화", isOn: $iCloudSyncEnabled)
                 Text("같은 Apple 계정의 Mac 간에 데이터가 동기화됩니다. Secret은 iCloud Keychain으로 별도 동기화되며, 로컬 폴더 경로는 Mac마다 다시 연결해야 합니다. 변경은 앱을 다시 실행하면 적용됩니다.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SeedColor.fgNeutralMuted)
             }
 
             Section("기본 경로") {
@@ -57,7 +57,7 @@ struct SettingsView: View {
                     .fontDesign(.monospaced)
                 Text("새 Target 생성 시 적용됩니다. 기존 Target에는 영향이 없습니다.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SeedColor.fgNeutralMuted)
             }
         }
         .formStyle(.grouped)
@@ -85,7 +85,7 @@ struct EnvironmentsEditor: View {
                     ForEach(environments) { environment in
                         HStack {
                             Image(systemName: "line.3.horizontal")
-                                .foregroundStyle(.tertiary)
+                                .foregroundStyle(SeedColor.fgNeutralSubtle)
                             Text(environment.name)
                             Spacer()
                             Button("삭제", systemImage: "trash") {

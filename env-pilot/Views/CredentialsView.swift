@@ -74,7 +74,7 @@ private struct CredentialRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(credential.label).fontWeight(.medium)
                 if let note = credential.note {
-                    Text(note).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(note).font(.caption).foregroundStyle(SeedColor.fgNeutralMuted).lineLimit(1)
                 }
             }
             .frame(width: 180, alignment: .leading)
@@ -97,7 +97,7 @@ private struct CredentialRow: View {
             } else {
                 Button("••••••••") { reveal() }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SeedColor.fgNeutralMuted)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .help("클릭하여 표시")
             }
@@ -105,7 +105,7 @@ private struct CredentialRow: View {
             if showClipboardNote {
                 Text("30초 후 클립보드에서 삭제됨")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SeedColor.fgNeutralMuted)
             }
             if let url = CredentialService.openableURL(credential.urlString) {
                 Button("열기", systemImage: "arrow.up.right.square") {
@@ -169,7 +169,7 @@ private struct AddCredentialSheet: View {
                 TextField("설명 (선택)", text: $note)
             }
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(SeedColor.fgCritical)
             }
         }
         .formStyle(.grouped)

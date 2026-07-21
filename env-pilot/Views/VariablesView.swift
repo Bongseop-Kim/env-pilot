@@ -197,7 +197,7 @@ private struct VariableRow: View {
         HStack(spacing: 12) {
             HStack(spacing: 4) {
                 if variable.isSecret {
-                    Image(systemName: "lock.fill").foregroundStyle(.secondary).font(.caption)
+                    Image(systemName: "lock.fill").foregroundStyle(SeedColor.fgNeutralMuted).font(.caption)
                 }
                 Text(variable.key).fontDesign(.monospaced).fontWeight(.medium)
                     .help(variable.key)   // 고정폭 컬럼에서 잘린 긴 키 확인용
@@ -207,7 +207,7 @@ private struct VariableRow: View {
             if variable.isSecret && !revealed {
                 Button("••••••••") { reveal() }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SeedColor.fgNeutralMuted)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .help("클릭하여 표시")
             } else {
@@ -220,14 +220,14 @@ private struct VariableRow: View {
 
             TextField("설명", text: $noteText)
                 .textFieldStyle(.plain)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(SeedColor.fgNeutralMuted)
                 .frame(width: 180)
                 .focused($focusedField, equals: .note)
                 .onSubmit(commitNote)
 
             // 자리를 항상 확보해 나타났다 사라져도 레이아웃이 밀리지 않게
             Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(.green)
+                .foregroundStyle(SeedColor.fgPositive)
                 .opacity(savedFlash ? 1 : 0)
                 .accessibilityLabel(savedFlash ? "저장됨" : "")
 
@@ -323,7 +323,7 @@ private struct AddVariableSheet: View {
                 Toggle("Secret (Keychain에 저장)", isOn: $isSecret)
             }
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(SeedColor.fgCritical)
             }
         }
         .formStyle(.grouped)

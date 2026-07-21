@@ -36,10 +36,10 @@ struct TargetScanSheet: View {
                         if candidate.hasExample {
                             Label(".env.example", systemImage: "doc.text")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(SeedColor.fgNeutralMuted)
                         }
                         if isExisting {
-                            Text("추가됨").font(.caption).foregroundStyle(.secondary)
+                            Text("추가됨").font(.caption).foregroundStyle(SeedColor.fgNeutralMuted)
                         }
                     }
                 }

@@ -90,14 +90,14 @@ struct GitChangesView: View {
             Section("외부에서 수정됨") {
                 ForEach(drifts) { drift in
                     HStack {
-                        Image(systemName: "pencil.line").foregroundStyle(.orange)
+                        Image(systemName: "pencil.line").foregroundStyle(SeedColor.fgBrand)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(drift.outputURL.lastPathComponent).fontDesign(.monospaced)
                             Text(drift.fileExists
                                  ? "\(drift.target.relativePath) — Generate 이후 파일이 앱 밖에서 수정되었습니다"
                                  : "\(drift.target.relativePath) — 파일이 삭제되었습니다")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(SeedColor.fgNeutralMuted)
                         }
                         Spacer()
                         if drift.fileExists {

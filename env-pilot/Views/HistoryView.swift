@@ -86,16 +86,16 @@ struct HistoryView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(entry.key).fontDesign(.monospaced).fontWeight(.medium)
-                    Text(actionLabel(entry.action)).foregroundStyle(.secondary)
+                    Text(actionLabel(entry.action)).foregroundStyle(SeedColor.fgNeutralMuted)
                 }
                 Text("\(entry.repositoryName) · \(entry.targetPath) · \(entry.environmentName)")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SeedColor.fgNeutralMuted)
             }
             Spacer()
             Text(entry.timestamp, style: .time)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(SeedColor.fgNeutralMuted)
         }
         .padding(.vertical, 2)
     }

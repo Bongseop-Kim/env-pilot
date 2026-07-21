@@ -50,15 +50,15 @@ struct ExportSheet: View {
                 SecureField("패스프레이즈 확인", text: $passphraseConfirm)
                 Text("Secret이 포함되므로 파일 전체가 AES-GCM으로 암호화됩니다. 패스프레이즈를 잊으면 복구할 수 없습니다.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SeedColor.fgNeutralMuted)
             } else {
                 Text("Secret은 구조만 내보내고 값은 비웁니다.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SeedColor.fgNeutralMuted)
             }
 
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red).font(.caption)
+                Text(errorMessage).foregroundStyle(SeedColor.fgCritical).font(.caption)
             }
 
             HStack {

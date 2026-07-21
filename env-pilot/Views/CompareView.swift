@@ -36,9 +36,9 @@ struct CompareView: View {
             ScrollView([.horizontal, .vertical]) {
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
                     GridRow {
-                        Text("Key").font(.caption).foregroundStyle(.secondary)
+                        Text("Key").font(.caption).foregroundStyle(SeedColor.fgNeutralMuted)
                         ForEach(environmentNames, id: \.self) {
-                            Text($0).font(.caption).foregroundStyle(.secondary)
+                            Text($0).font(.caption).foregroundStyle(SeedColor.fgNeutralMuted)
                                 .frame(minWidth: 140, alignment: .leading)
                         }
                     }
@@ -87,7 +87,7 @@ private struct CompareCell: View {
             cellContent
             if !duplicateWith.isEmpty {
                 Image(systemName: "equal.circle.fill")
-                    .foregroundStyle(.yellow)
+                    .foregroundStyle(SeedColor.fgWarning)
                     .help("\(duplicateWith.joined(separator: ", "))와 값이 동일합니다")
             }
         }
@@ -100,7 +100,7 @@ private struct CompareCell: View {
                 if variable.isSecret {
                     // ponytail: Compare에서 Secret은 읽기 전용 마스킹 — 편집은 Variables 탭에서
                     Label("••••••", systemImage: "lock.fill")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(SeedColor.fgNeutralMuted)
                 } else {
                     TextField("빈 값", text: $text)
                         .textFieldStyle(.roundedBorder)
@@ -122,7 +122,7 @@ private struct CompareCell: View {
                     } catch { onError(error.localizedDescription) }
                 } label: {
                     Label("누락", systemImage: "plus.circle")
-                        .foregroundStyle(.red)
+                        .foregroundStyle(SeedColor.fgCritical)
                 }
                 .buttonStyle(.plain)
             }

@@ -45,10 +45,10 @@ struct ImportSheet: View {
 
             if !warnings.isEmpty {
                 Text("경고: \(warnings.joined(separator: " / "))")
-                    .font(.caption).foregroundStyle(.orange).padding(.horizontal)
+                    .font(.caption).foregroundStyle(SeedColor.fgBrand).padding(.horizontal)
             }
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red).padding(.horizontal)
+                Text(errorMessage).foregroundStyle(SeedColor.fgCritical).padding(.horizontal)
             }
 
             HStack {
@@ -68,23 +68,23 @@ struct ImportSheet: View {
         switch item.kind {
         case .add:
             HStack {
-                Image(systemName: "plus.circle.fill").foregroundStyle(.green)
+                Image(systemName: "plus.circle.fill").foregroundStyle(SeedColor.fgPositive)
                 Text(item.key).fontDesign(.monospaced)
                 Spacer()
-                Text(item.newValue).foregroundStyle(.secondary).fontDesign(.monospaced)
+                Text(item.newValue).foregroundStyle(SeedColor.fgNeutralMuted).fontDesign(.monospaced)
                     .lineLimit(1).truncationMode(.middle)
             }
         case .same:
             HStack {
-                Image(systemName: "equal.circle").foregroundStyle(.secondary)
-                Text(item.key).fontDesign(.monospaced).foregroundStyle(.secondary)
+                Image(systemName: "equal.circle").foregroundStyle(SeedColor.fgNeutralMuted)
+                Text(item.key).fontDesign(.monospaced).foregroundStyle(SeedColor.fgNeutralMuted)
                 Spacer()
-                Text("동일 — 스킵").font(.caption).foregroundStyle(.secondary)
+                Text("동일 — 스킵").font(.caption).foregroundStyle(SeedColor.fgNeutralMuted)
             }
         case .conflict(let existing):
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Image(systemName: "arrow.triangle.branch").foregroundStyle(.orange)
+                    Image(systemName: "arrow.triangle.branch").foregroundStyle(SeedColor.fgBrand)
                     Text(item.key).fontDesign(.monospaced).fontWeight(.medium)
                     Spacer()
                     Picker("", selection: choiceBinding(item.key)) {
@@ -98,7 +98,7 @@ struct ImportSheet: View {
                     Text("파일: \(item.newValue)")
                     Text("기존: \(existing)")
                 }
-                .font(.caption).fontDesign(.monospaced).foregroundStyle(.secondary)
+                .font(.caption).fontDesign(.monospaced).foregroundStyle(SeedColor.fgNeutralMuted)
                 .lineLimit(1).truncationMode(.middle)
                 .padding(.leading, 24)
             }

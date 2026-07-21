@@ -33,7 +33,7 @@ struct GenerateSheet: View {
             }
 
             if !errors.isEmpty {
-                ForEach(errors, id: \.self) { Text($0).foregroundStyle(.red).padding(.horizontal) }
+                ForEach(errors, id: \.self) { Text($0).foregroundStyle(SeedColor.fgCritical).padding(.horizontal) }
             }
 
             HStack {
@@ -77,7 +77,7 @@ struct GenerateSheet: View {
         List(issues) { report in
             VStack(alignment: .leading, spacing: 4) {
                 Label(report.outputRelativePath, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(SeedColor.fgBrand)
                     .fontDesign(.monospaced)
                 HStack {
                     if !report.isIgnored {
@@ -94,7 +94,7 @@ struct GenerateSheet: View {
                         .controlSize(.small)
                     }
                     if report.isTracked {
-                        Text("이미 Git에 커밋됨 — git rm --cached 필요").font(.caption).foregroundStyle(.red)
+                        Text("이미 Git에 커밋됨 — git rm --cached 필요").font(.caption).foregroundStyle(SeedColor.fgCritical)
                     }
                 }
             }
@@ -113,18 +113,18 @@ private struct PlanRow: View {
                 Text(plan.targetPath).fontWeight(.medium)
                 Text(plan.outputURL.lastPathComponent)
                     .fontDesign(.monospaced)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SeedColor.fgNeutralMuted)
                 Spacer()
-                Text(label).font(.caption).foregroundStyle(.secondary)
+                Text(label).font(.caption).foregroundStyle(SeedColor.fgNeutralMuted)
             }
             if plan.action == .overwrite, let existing = plan.existingContent {
                 let diff = GenerateService.lineDiff(old: existing, new: plan.content)
                 VStack(alignment: .leading, spacing: 1) {
                     ForEach(diff.removed, id: \.self) { line in
-                        Text("− \(line)").foregroundStyle(.red)
+                        Text("− \(line)").foregroundStyle(SeedColor.fgCritical)
                     }
                     ForEach(diff.added, id: \.self) { line in
-                        Text("+ \(line)").foregroundStyle(.green)
+                        Text("+ \(line)").foregroundStyle(SeedColor.fgPositive)
                     }
                 }
                 .font(.caption)

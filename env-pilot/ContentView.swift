@@ -201,7 +201,7 @@ struct ContentView: View {
     }
 
     private var placeholder: some View {
-        Text("Repository를 선택하세요").foregroundStyle(.secondary)
+        Text("Repository를 선택하세요").foregroundStyle(SeedColor.fgNeutralMuted)
     }
 
     /// 사이드바 Health 뱃지 (§3.8: Repository 상태 = 최악 값).
@@ -330,7 +330,7 @@ struct RepositoryDetailView: View {
                               pendingAddKey: $pendingAddKey)
                     .id("\(target.persistentModelID)-\(environmentName)")
             } else {
-                Text("Target이 없습니다").foregroundStyle(.secondary)
+                Text("Target이 없습니다").foregroundStyle(SeedColor.fgNeutralMuted)
                     .frame(maxHeight: .infinity)
             }
         case .accounts:
@@ -340,7 +340,7 @@ struct RepositoryDetailView: View {
                 CompareView(target: target, environmentNames: environmentNames)
                     .id(target.persistentModelID)
             } else {
-                Text("Target이 없습니다").foregroundStyle(.secondary)
+                Text("Target이 없습니다").foregroundStyle(SeedColor.fgNeutralMuted)
                     .frame(maxHeight: .infinity)
             }
         case .health:
@@ -475,7 +475,7 @@ struct RepositoryDetailView: View {
             if !isLinked {
                 HStack {
                     Label("이 Mac에서 폴더에 접근할 수 없습니다", systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(SeedColor.fgBrand)
                     Button("폴더 다시 연결…") { showRelinker = true }
                 }
             }
@@ -494,7 +494,7 @@ struct RepositoryDetailView: View {
                 if diffCount > 0 {
                     Text("\(diffCount)")
                         .font(.caption2.bold())
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(SeedColor.fgBrand)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1)
                         .background(.orange.opacity(0.15), in: Capsule())
@@ -510,7 +510,7 @@ struct RepositoryDetailView: View {
                 Spacer()
                 Text(repo.gitRemoteURL ?? repo.localPathDisplay ?? "")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SeedColor.fgNeutralMuted)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }

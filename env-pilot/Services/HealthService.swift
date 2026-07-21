@@ -27,11 +27,13 @@ enum HealthStatus: Int, Comparable {
         }
     }
 
-    var color: Color {
+    var color: Color { seedTone.fg }
+
+    var seedTone: SeedTone {
         switch self {
-        case .healthy: .green
-        case .warning: .yellow
-        case .critical: .red
+        case .healthy: .positive
+        case .warning: .warning
+        case .critical: .critical
         }
     }
 }

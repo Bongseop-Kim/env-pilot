@@ -30,7 +30,7 @@ struct HealthView: View {
                 if allHealthy {
                     Label("All Healthy — 모든 Environment가 example 키를 충족합니다",
                           systemImage: "checkmark.seal.fill")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(SeedColor.fgPositive)
                 } else {
                     healthSections
                     safetySection
@@ -50,7 +50,7 @@ struct HealthView: View {
                       ? "AGENTS.md — 모든 에이전트에 .env 읽기 금지 규칙이 있습니다"
                       : "AGENTS.md에 .env 읽기 금지 규칙이 없습니다 (Codex·Cursor 등 공통)",
                       systemImage: agentsRuleInstalled ? "checkmark.shield.fill" : "exclamationmark.triangle.fill")
-                    .foregroundStyle(agentsRuleInstalled ? .green : .yellow)
+                    .foregroundStyle(agentsRuleInstalled ? SeedColor.fgPositive : SeedColor.fgWarning)
                 Spacer()
                 if !agentsRuleInstalled {
                     Button("AGENTS.md에 규칙 추가") { onAddAgentsRule() }
@@ -64,7 +64,7 @@ struct HealthView: View {
                           ? "차단됨 — Claude Code가 .env 파일을 읽을 수 없습니다"
                           : "Claude Code 설정이 있지만 .env 파일 읽기가 차단되지 않았습니다",
                           systemImage: claudeEnvDenied ? "checkmark.shield.fill" : "exclamationmark.triangle.fill")
-                        .foregroundStyle(claudeEnvDenied ? .green : .yellow)
+                        .foregroundStyle(claudeEnvDenied ? SeedColor.fgPositive : SeedColor.fgWarning)
                     Spacer()
                     if !claudeEnvDenied {
                         Button("읽기 차단 규칙 추가") { onAddClaudeDeny() }
@@ -85,7 +85,7 @@ struct HealthView: View {
                           ? "설치됨 — .env 파일 커밋이 차단됩니다"
                           : ".env 파일 커밋을 차단하는 hook을 설치할 수 있습니다",
                           systemImage: hookInstalled ? "checkmark.shield.fill" : "shield")
-                        .foregroundStyle(hookInstalled ? .green : .secondary)
+                        .foregroundStyle(hookInstalled ? SeedColor.fgPositive : SeedColor.fgNeutralMuted)
                     Spacer()
                     Button(hookInstalled ? "제거" : "pre-commit hook 설치") {
                         hookInstalled ? onRemoveHook() : onInstallHook()
@@ -124,7 +124,7 @@ struct HealthView: View {
 
     @ViewBuilder private func keyChips(_ item: HealthService.Item) -> some View {
         if item.status == .healthy {
-            Text("Healthy").foregroundStyle(.secondary).font(.caption)
+            Text("Healthy").foregroundStyle(SeedColor.fgNeutralMuted).font(.caption)
         } else {
             // 누락 키 클릭 → 해당 Variable 입력으로 이동 (§3.8 수용 기준)
             WrappingHStack {
@@ -158,7 +158,7 @@ struct HealthView: View {
                         HStack {
                             if !report.isIgnored {
                                 Label(".gitignore에 없음", systemImage: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(.red)
+                                    .foregroundStyle(SeedColor.fgCritical)
                                 Button(".gitignore에 추가") {
                                     onAddToGitignore((report.outputRelativePath as NSString).lastPathComponent)
                                 }
@@ -166,11 +166,11 @@ struct HealthView: View {
                             }
                             if report.isTracked {
                                 Label("Git에 커밋되어 있음 — git rm --cached로 제거 필요", systemImage: "xmark.octagon.fill")
-                                    .foregroundStyle(.red)
+                                    .foregroundStyle(SeedColor.fgCritical)
                             }
                             if report.permissionsOK == false {
                                 Label("권한이 0600이 아님", systemImage: "lock.open")
-                                    .foregroundStyle(.yellow)
+                                    .foregroundStyle(SeedColor.fgWarning)
                                 Button("수정") { onFixPermissions(report) }
                                     .controlSize(.small)
                             }
