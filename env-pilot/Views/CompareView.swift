@@ -36,9 +36,9 @@ struct CompareView: View {
             ScrollView([.horizontal, .vertical]) {
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
                     GridRow {
-                        Text("Key").font(.caption).foregroundStyle(SeedColor.fgNeutralMuted)
+                        Text("Key").font(SeedFont.t3()).foregroundStyle(SeedColor.fgNeutralMuted)
                         ForEach(environmentNames, id: \.self) {
-                            Text($0).font(.caption).foregroundStyle(SeedColor.fgNeutralMuted)
+                            Text($0).font(SeedFont.t3()).foregroundStyle(SeedColor.fgNeutralMuted)
                                 .frame(minWidth: 140, alignment: .leading)
                         }
                     }

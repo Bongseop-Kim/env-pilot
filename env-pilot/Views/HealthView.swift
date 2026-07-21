@@ -136,7 +136,7 @@ struct HealthView: View {
 
     @ViewBuilder private func keyChips(_ item: HealthService.Item) -> some View {
         if item.status == .healthy {
-            Text("Healthy").foregroundStyle(SeedColor.fgNeutralMuted).font(.caption)
+            Text("Healthy").foregroundStyle(SeedColor.fgNeutralMuted).font(SeedFont.t3())
         } else {
             // 누락 키 클릭 → 해당 Variable 입력으로 이동 (§3.8 수용 기준)
             WrappingHStack {
@@ -183,7 +183,7 @@ struct HealthView: View {
                                     .buttonStyle(.seed(.neutralWeak, size: .xsmall))
                             }
                         }
-                        .font(.caption)
+                        .font(SeedFont.t3())
                     }
                     .seedListRow()
                 }

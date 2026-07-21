@@ -73,7 +73,7 @@ private struct CredentialRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(credential.label).fontWeight(.medium)
                 if let note = credential.note {
-                    Text(note).font(.caption).foregroundStyle(SeedColor.fgNeutralMuted).lineLimit(1)
+                    Text(note).font(SeedFont.t3()).foregroundStyle(SeedColor.fgNeutralMuted).lineLimit(1)
                 }
             }
             .frame(width: 180, alignment: .leading)

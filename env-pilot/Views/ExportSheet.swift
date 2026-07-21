@@ -36,7 +36,7 @@ struct ExportSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Export — .envide 번들")
-                .font(.headline)
+                .font(SeedFont.t6(.bold))
 
             VStack(spacing: SeedSpacing.x2) {
                 SeedSelectBox(repo.name, description: "이 Repository만 내보냅니다",
@@ -53,11 +53,11 @@ struct ExportSheet: View {
                               isInvalid: !passphraseConfirm.isEmpty && passphrase != passphraseConfirm,
                               secure: true)
                 Text("Secret이 포함되므로 파일 전체가 AES-GCM으로 암호화됩니다. 패스프레이즈를 잊으면 복구할 수 없습니다.")
-                    .font(.caption)
+                    .font(SeedFont.t3())
                     .foregroundStyle(SeedColor.fgNeutralMuted)
             } else {
                 Text("Secret은 구조만 내보내고 값은 비웁니다.")
-                    .font(.caption)
+                    .font(SeedFont.t3())
                     .foregroundStyle(SeedColor.fgNeutralMuted)
             }
 

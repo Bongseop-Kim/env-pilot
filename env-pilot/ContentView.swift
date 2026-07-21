@@ -252,7 +252,6 @@ struct RepositoryDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            SeedDivider()
             tabContent
         }
         .frame(maxHeight: .infinity, alignment: .top)
@@ -462,46 +461,52 @@ struct RepositoryDetailView: View {
         scanMonorepo(auto: true)
     }
 
+    /// 상단 행: 타겟 피커·diff 뱃지·경로. 탭 행: 탭만 — 탭의 하단 스트로크가 콘텐츠 경계선.
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if !isLinked {
-                HStack {
-                    StatusLabel("이 Mac에서 폴더에 접근할 수 없습니다",
-                                systemImage: "exclamationmark.triangle", tone: .warning)
-                    Button("폴더 다시 연결…") { showRelinker = true }
-                }
-            }
-            HStack {
-                SeedTabs(selection: $tab, items: [
-                    (DetailTab.variables, "Variables"),
-                    (DetailTab.accounts, "Accounts"),
-                    (DetailTab.compare, "Compare"),
-                    (DetailTab.health, "Health"),
-                    (DetailTab.gitChanges, "Git Changes"),
-                ])
-                .fixedSize()
-
-                // 라벨에 숫자를 넣으면 segmented control 폭이 흔들려 별도 뱃지로 표시
-                if diffCount > 0 {
-                    SeedBadge("\(diffCount)", tone: .brand)
-                        .help("처리 대기 중인 Git 변경 \(diffCount)건")
-                }
-
-                if (tab == .variables || tab == .compare) && targets.count > 1 {
-                    Picker("Target", selection: $selectedTargetPath) {
-                        ForEach(targets, id: \.relativePath) { Text($0.relativePath).tag($0.relativePath) }
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: SeedSpacing.x2) {
+                if !isLinked {
+                    HStack {
+                        StatusLabel("이 Mac에서 폴더에 접근할 수 없습니다",
+                                    systemImage: "exclamationmark.triangle", tone: .warning)
+                        Button("폴더 다시 연결…") { showRelinker = true }
+                            .buttonStyle(.seed(.neutralWeak, size: .xsmall))
                     }
-                    .fixedSize()
                 }
-                Spacer()
-                Text(repo.gitRemoteURL ?? repo.localPathDisplay ?? "")
-                    .font(.caption)
-                    .foregroundStyle(SeedColor.fgNeutralMuted)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                HStack(spacing: SeedSpacing.x2) {
+                    if (tab == .variables || tab == .compare) && targets.count > 1 {
+                        Picker("Target", selection: $selectedTargetPath) {
+                            ForEach(targets, id: \.relativePath) { Text($0.relativePath).tag($0.relativePath) }
+                        }
+                        .fixedSize()
+                    }
+                    if diffCount > 0 {
+                        SeedBadge("Git 변경 \(diffCount)", tone: .brand)
+                            .help("처리 대기 중인 Git 변경 \(diffCount)건")
+                    }
+                    Spacer()
+                    Text(repo.gitRemoteURL ?? repo.localPathDisplay ?? "")
+                        .font(SeedFont.t2())
+                        .foregroundStyle(SeedColor.fgNeutralMuted)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
+            .padding(.horizontal, SeedSpacing.x4)
+            .padding(.top, SeedSpacing.x2_5)
+            .padding(.bottom, SeedSpacing.x1)
+
+            SeedTabs(selection: $tab, items: [
+                (DetailTab.variables, "Variables"),
+                (DetailTab.accounts, "Accounts"),
+                (DetailTab.compare, "Compare"),
+                (DetailTab.health, "Health"),
+                (DetailTab.gitChanges, "Git Changes"),
+            ])
+            .padding(.horizontal, SeedSpacing.x4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .bottom) { SeedDivider() }   // 탭 인디케이터가 이 선 위에 겹친다
         }
-        .padding(10)
     }
 }
 

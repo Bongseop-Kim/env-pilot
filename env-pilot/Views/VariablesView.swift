@@ -199,7 +199,7 @@ private struct VariableRow: View {
         HStack(spacing: 12) {
             HStack(spacing: 4) {
                 if variable.isSecret {
-                    Image(systemName: "lock.fill").foregroundStyle(SeedColor.fgNeutralMuted).font(.caption)
+                    Image(systemName: "lock.fill").foregroundStyle(SeedColor.fgNeutralMuted).font(SeedFont.t3())
                 }
                 Text(variable.key).fontDesign(.monospaced).fontWeight(.medium)
                     .help(variable.key)   // 고정폭 컬럼에서 잘린 긴 키 확인용

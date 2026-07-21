@@ -17,7 +17,7 @@ struct BundleImportSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Import — .envide 번들")
-                .font(.headline)
+                .font(SeedFont.t6(.bold))
                 .padding()
 
             if payload != nil {
@@ -110,7 +110,7 @@ struct BundleImportSheet: View {
                 Image(systemName: "equal.circle").foregroundStyle(SeedColor.fgNeutralMuted)
                 Text(item.key).fontDesign(.monospaced).foregroundStyle(SeedColor.fgNeutralMuted)
                 Spacer()
-                Text("동일 — 스킵").font(.caption).foregroundStyle(SeedColor.fgNeutralMuted)
+                Text("동일 — 스킵").font(SeedFont.t3()).foregroundStyle(SeedColor.fgNeutralMuted)
             }
         case .conflict(let existing):
             VStack(alignment: .leading, spacing: 4) {
@@ -126,7 +126,7 @@ struct BundleImportSheet: View {
                     Text("파일: \(item.newValue)")
                     Text("기존: \(existing)")
                 }
-                .font(.caption).fontDesign(.monospaced).foregroundStyle(SeedColor.fgNeutralMuted)
+                .font(SeedFont.t3()).fontDesign(.monospaced).foregroundStyle(SeedColor.fgNeutralMuted)
                 .lineLimit(1).truncationMode(.middle)
                 .padding(.leading, 24)
             }
