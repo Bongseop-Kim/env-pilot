@@ -189,7 +189,7 @@ struct HealthView: View {
                         }
                         .font(.caption)
                     }
-                    .padding(.vertical, 2)
+                    .seedListRow()
                 }
             }
         }

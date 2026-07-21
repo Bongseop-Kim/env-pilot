@@ -44,6 +44,8 @@ struct TargetScanSheet: View {
                     }
                 }
                 .disabled(isExisting)
+                .toggleStyle(.seed)
+                .seedListRow()
             }
 
             HStack {

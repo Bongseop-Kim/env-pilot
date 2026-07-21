@@ -61,6 +61,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .toggleStyle(.seed)
         .frame(width: 480, height: 440)
     }
 }

@@ -252,7 +252,7 @@ struct RepositoryDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
+            SeedDivider()
             tabContent
         }
         .frame(maxHeight: .infinity, alignment: .top)
@@ -472,14 +472,13 @@ struct RepositoryDetailView: View {
                 }
             }
             HStack {
-                Picker("", selection: $tab) {
-                    Text("Variables").tag(DetailTab.variables)
-                    Text("Accounts").tag(DetailTab.accounts)
-                    Text("Compare").tag(DetailTab.compare)
-                    Text("Health").tag(DetailTab.health)
-                    Text("Git Changes").tag(DetailTab.gitChanges)
-                }
-                .pickerStyle(.segmented)
+                SeedTabs(selection: $tab, items: [
+                    (DetailTab.variables, "Variables"),
+                    (DetailTab.accounts, "Accounts"),
+                    (DetailTab.compare, "Compare"),
+                    (DetailTab.health, "Health"),
+                    (DetailTab.gitChanges, "Git Changes"),
+                ])
                 .fixedSize()
 
                 // 라벨에 숫자를 넣으면 segmented control 폭이 흔들려 별도 뱃지로 표시

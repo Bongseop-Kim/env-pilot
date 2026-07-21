@@ -97,14 +97,14 @@ struct HistoryView: View {
                 .font(.caption)
                 .foregroundStyle(SeedColor.fgNeutralMuted)
         }
-        .padding(.vertical, 2)
+        .seedListRow()
     }
 
     private func icon(_ action: String) -> (String, Color) {
         switch action {
-        case "created": ("plus.circle.fill", .green)
-        case "deleted": ("minus.circle.fill", .red)
-        default: ("pencil.circle.fill", .orange)
+        case "created": ("plus.circle.fill", SeedColor.fgPositive)
+        case "deleted": ("minus.circle.fill", SeedColor.fgCritical)
+        default: ("pencil.circle.fill", SeedColor.fgBrand)
         }
     }
 

@@ -244,7 +244,7 @@ private struct VariableRow: View {
             .foregroundStyle(copied ? SeedColor.fgPositive : .primary)
             .help(variable.isSecret ? "값 복사 — 30초 후 클립보드에서 자동 삭제됩니다" : "값 복사")
         }
-        .padding(.vertical, 2)
+        .seedListRow()
         .onAppear {
             valueText = variable.isSecret ? "" : variable.value
             noteText = variable.note ?? ""

@@ -45,6 +45,7 @@ struct ExportSheet: View {
             .pickerStyle(.radioGroup)
 
             Toggle("Secret 실값 포함", isOn: $includeSecrets)
+                .toggleStyle(.seed)
             if includeSecrets {
                 SeedTextField("패스프레이즈", text: $passphrase, secure: true)
                 SeedTextField("패스프레이즈 확인", text: $passphraseConfirm,

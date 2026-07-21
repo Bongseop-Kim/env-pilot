@@ -136,7 +136,7 @@ private struct PlanRow: View {
                 .padding(.leading, 24)
             }
         }
-        .padding(.vertical, 2)
+        .seedListRow()
     }
 
     private var icon: (String, Color) {

@@ -123,7 +123,7 @@ private struct CredentialRow: View {
             .buttonStyle(.borderless)
             .help("비밀번호 복사")
         }
-        .padding(.vertical, 2)
+        .seedListRow()
     }
 
     private func reveal() {

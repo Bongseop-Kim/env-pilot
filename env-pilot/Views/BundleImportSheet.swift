@@ -118,12 +118,9 @@ struct BundleImportSheet: View {
                     Image(systemName: "arrow.triangle.branch").foregroundStyle(SeedColor.fgBrand)
                     Text(item.key).fontDesign(.monospaced).fontWeight(.medium)
                     Spacer()
-                    Picker("", selection: choiceBinding(item.id)) {
-                        Text("파일 값 사용").tag(true)
-                        Text("기존 값 유지").tag(false)
-                    }
-                    .pickerStyle(.segmented)
-                    .fixedSize()
+                    SeedSegmentedControl(selection: choiceBinding(item.id),
+                                         items: [(true, "파일 값 사용"), (false, "기존 값 유지")])
+                        .fixedSize()
                 }
                 Group {
                     Text("파일: \(item.newValue)")

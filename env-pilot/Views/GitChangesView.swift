@@ -107,7 +107,7 @@ struct GitChangesView: View {
                             .buttonStyle(.seed(.neutralWeak, size: .xsmall))
                             .help("앱에 저장된 변수로 파일을 다시 생성")
                     }
-                    .padding(.vertical, 2)
+                    .seedListRow()
                 }
             }
         }
@@ -136,6 +136,6 @@ private struct DiffRow<Actions: View>: View {
             Spacer()
             actions
         }
-        .padding(.vertical, 2)
+        .seedListRow()
     }
 }
