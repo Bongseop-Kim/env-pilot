@@ -173,8 +173,8 @@ enum GitSafetyService {
     }
 
     // MARK: - AI 에이전트 노출 검사 (1Password zero-exposure 모델 참고)
-    // ponytail: Claude Code만 검사 — deny 규칙이 기계적으로 편집 가능한 유일한 에이전트.
-    // Cursor/Codex 등은 필요해지면 추가.
+    // Claude Code는 permissions.deny로 강제 차단, 그 외 에이전트(Codex·Cursor·Gemini 등)는
+    // 공통 규약 AGENTS.md의 지시 블록으로 커버.
 
     /// .claude 설정에 .env 읽기 차단(deny) 규칙이 있는지. .claude 디렉토리가 없으면 nil(해당 없음).
     static func claudeEnvDenyStatus(rootURL: URL) -> Bool? {
@@ -221,6 +221,43 @@ enum GitSafetyService {
         let merged = insertingClaudeDenyRules(into: existing, fileNames: fileNames)
         let data = try JSONSerialization.data(withJSONObject: merged, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: url, options: .atomic)
+    }
+
+    // MARK: - AGENTS.md 공통 규칙 (Claude 외 모든 에이전트)
+
+    static let agentsBeginMarker = "<!-- envide-guard begin -->"
+    static let agentsEndMarker = "<!-- envide-guard end -->"
+
+    /// 에이전트가 가장 잘 따르도록 영어로 작성 — AGENTS.md는 AI가 읽는 파일.
+    static let agentsRuleBlock = """
+        \(agentsBeginMarker)
+        ## Environment files — do not read
+
+        Never read, print, copy, or transmit the contents of `.env` / `.env.*` files \
+        (except `*.example`) — they contain secrets. Refer to `.env.example` for key names.
+        \(agentsEndMarker)
+        """
+
+    /// AGENTS.md에 .env 읽기 금지 블록이 있는지. 파일이 없으면 false(추가 가능).
+    static func agentsMdEnvRuleStatus(rootURL: URL) -> Bool {
+        let hasAccess = rootURL.startAccessingSecurityScopedResource()
+        defer { if hasAccess { rootURL.stopAccessingSecurityScopedResource() } }
+        let content = try? String(contentsOf: rootURL.appendingPathComponent("AGENTS.md"), encoding: .utf8)
+        return content?.contains(agentsBeginMarker) ?? false
+    }
+
+    /// AGENTS.md 끝에 규칙 블록 append (파일 없으면 생성, 이미 있으면 no-op — 멱등).
+    static func addAgentsMdEnvRule(rootURL: URL) throws {
+        let hasAccess = rootURL.startAccessingSecurityScopedResource()
+        defer { if hasAccess { rootURL.stopAccessingSecurityScopedResource() } }
+        let url = rootURL.appendingPathComponent("AGENTS.md")
+        var content = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        guard !content.contains(agentsBeginMarker) else { return }
+        if !content.isEmpty {
+            if !content.hasSuffix("\n") { content += "\n" }
+            content += "\n"
+        }
+        try (content + agentsRuleBlock + "\n").write(to: url, atomically: true, encoding: .utf8)
     }
 
     // MARK: - 간이 gitignore 매칭

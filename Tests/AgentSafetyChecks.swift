@@ -35,6 +35,21 @@ struct AgentSafetyChecks {
         try GitSafetyService.addClaudeEnvDenyRules(fileNames: [".env.local"], rootURL: root)
         assert(GitSafetyService.claudeEnvDenyStatus(rootURL: root) == true, "규칙 추가 후 → 차단됨")
 
+        // AGENTS.md 공통 규칙 — 파일 없음 → 생성, 기존 내용 보존, 멱등
+        let agentsURL = root.appendingPathComponent("AGENTS.md")
+        assert(!GitSafetyService.agentsMdEnvRuleStatus(rootURL: root), "AGENTS.md 없음 → 미설치")
+        try GitSafetyService.addAgentsMdEnvRule(rootURL: root)
+        assert(GitSafetyService.agentsMdEnvRuleStatus(rootURL: root), "추가 후 → 설치됨")
+        let created = try String(contentsOf: agentsURL, encoding: .utf8)
+        try GitSafetyService.addAgentsMdEnvRule(rootURL: root)
+        let unchanged = try String(contentsOf: agentsURL, encoding: .utf8)
+        assert(unchanged == created, "멱등 — 재호출 시 변화 없음")
+        try "# 기존 가이드\n".write(to: agentsURL, atomically: true, encoding: .utf8)
+        try GitSafetyService.addAgentsMdEnvRule(rootURL: root)
+        let appended = try String(contentsOf: agentsURL, encoding: .utf8)
+        assert(appended.hasPrefix("# 기존 가이드\n"), "기존 내용 보존")
+        assert(appended.contains(GitSafetyService.agentsBeginMarker), "블록 추가됨")
+
         print("✅ AgentSafety: all checks passed")
     }
 }

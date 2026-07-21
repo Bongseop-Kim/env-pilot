@@ -5,13 +5,15 @@ struct HealthView: View {
     let items: [HealthService.Item]
     let safetyReports: [GitSafetyService.Report]
     let hookInstalled: Bool?   // nil = Git 저장소 아님 → hook 섹션 숨김
-    let claudeEnvDenied: Bool? // nil = .claude 설정 없음 → 에이전트 섹션 숨김
+    let claudeEnvDenied: Bool? // nil = .claude 설정 없음 → Claude 행 숨김
+    let agentsRuleInstalled: Bool // AGENTS.md 공통 규칙 — 모든 에이전트 대상이라 항상 표시
     let onSelectMissingKey: (_ targetPath: String, _ environmentName: String, _ key: String) -> Void
     let onAddToGitignore: (_ fileName: String) -> Void
     let onFixPermissions: (_ report: GitSafetyService.Report) -> Void
     let onInstallHook: () -> Void
     let onRemoveHook: () -> Void
     let onAddClaudeDeny: () -> Void
+    let onAddAgentsRule: () -> Void
 
     private var allHealthy: Bool {
         items.allSatisfy { $0.status == .healthy } && !safetyReports.contains(where: \.hasIssue)
@@ -19,7 +21,7 @@ struct HealthView: View {
 
     var body: some View {
         if items.isEmpty && safetyReports.allSatisfy({ !$0.hasIssue }) && hookInstalled == nil
-            && claudeEnvDenied == nil {
+            && claudeEnvDenied == nil && agentsRuleInstalled {
             ContentUnavailableView("판정 대상 없음", systemImage: "questionmark.circle",
                                    description: Text(".env.example이 있는 Target이 없습니다"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)   // 상단 정렬 VStack 안에서 중앙 배치
@@ -39,10 +41,24 @@ struct HealthView: View {
         }
     }
 
-    /// AI 에이전트 노출 — Claude Code 설정이 있는데 .env 읽기 차단이 없으면 경고 (1Password zero-exposure 참고).
+    /// AI 에이전트 노출 — .env 읽기 차단 (1Password zero-exposure 참고).
+    /// AGENTS.md는 모든 에이전트 공통(지시), Claude Code는 permissions.deny(강제).
     @ViewBuilder private var agentSection: some View {
-        if let claudeEnvDenied {
-            Section("AI 에이전트") {
+        Section("AI 에이전트") {
+            HStack {
+                Label(agentsRuleInstalled
+                      ? "AGENTS.md — 모든 에이전트에 .env 읽기 금지 규칙이 있습니다"
+                      : "AGENTS.md에 .env 읽기 금지 규칙이 없습니다 (Codex·Cursor 등 공통)",
+                      systemImage: agentsRuleInstalled ? "checkmark.shield.fill" : "exclamationmark.triangle.fill")
+                    .foregroundStyle(agentsRuleInstalled ? .green : .yellow)
+                Spacer()
+                if !agentsRuleInstalled {
+                    Button("AGENTS.md에 규칙 추가") { onAddAgentsRule() }
+                        .controlSize(.small)
+                        .help("AGENTS.md에 .env 파일을 읽지 말라는 공통 규칙 블록을 추가합니다")
+                }
+            }
+            if let claudeEnvDenied {
                 HStack {
                     Label(claudeEnvDenied
                           ? "차단됨 — Claude Code가 .env 파일을 읽을 수 없습니다"
