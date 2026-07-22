@@ -155,7 +155,7 @@ struct LocalSyncChecks {
 
         // 기존 파일을 직접 덮어쓰는 저장도 watcher가 감지한다.
         var watcherDetectedChange = false
-        let watcher = OutputFileWatcher(rootURL: root, targets: [rootVariable.target!]) {
+        let watcher = OutputFileWatcher(rootURL: root) {
             watcherDetectedChange = true
         }
         let outputURL = root.appendingPathComponent(".env")
@@ -163,12 +163,23 @@ struct LocalSyncChecks {
         try handle.truncate(atOffset: 0)
         try handle.write(contentsOf: Data("ROOT=watched\nNEW_SECRET=value\n".utf8))
         try handle.close()
-        let deadline = Date().addingTimeInterval(2)
+        var deadline = Date().addingTimeInterval(5)
+        while !watcherDetectedChange && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        assert(watcherDetectedChange, "실제 env 파일 직접 수정 감지")
+
+        // 감시 시작 후 새 폴더에 새로 생긴 .env도 감지한다 (FSEvents 재귀 감시).
+        watcherDetectedChange = false
+        let newPackage = root.appendingPathComponent("packages/fresh")
+        try fm.createDirectory(at: newPackage, withIntermediateDirectories: true)
+        try Data("FRESH=1\n".utf8).write(to: newPackage.appendingPathComponent(".env"))
+        deadline = Date().addingTimeInterval(5)
         while !watcherDetectedChange && Date() < deadline {
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
         watcher.stop()
-        assert(watcherDetectedChange, "실제 env 파일 직접 수정 감지")
+        assert(watcherDetectedChange, "새 폴더의 새 .env 파일 감지")
 
         // 테스트가 만든 Keychain 값을 정리한다.
         for target in [targets, [legacyTarget]].flatMap({ $0 }) {

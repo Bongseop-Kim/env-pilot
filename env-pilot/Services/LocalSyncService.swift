@@ -3,6 +3,7 @@ import SwiftData
 import CryptoKit
 import Dispatch
 import Darwin
+import CoreServices
 
 extension Notification.Name {
     static let localEnvFileDidChange = Notification.Name("envPilot.localEnvFileDidChange")
@@ -436,69 +437,55 @@ enum LocalSyncService {
     }
 }
 
-/// Target 디렉터리와 output 파일을 함께 감시하는 네이티브 watcher.
+/// Repository 루트 전체를 FSEvents로 재귀 감시하는 watcher.
+/// 등록된 target뿐 아니라 새 폴더에 새로 생긴 .env 파일도 감지한다.
 final class OutputFileWatcher {
-    private var sources: [DispatchSourceFileSystemObject] = []
-    private var pending: DispatchWorkItem?
+    private var stream: FSEventStreamRef?
     private let rootURL: URL
-    private let watchedPaths: [(directory: String, file: String)]
     private let onChange: () -> Void
     private var hasAccess: Bool
 
-    init(rootURL: URL, targets: [Target], onChange: @escaping () -> Void) {
+    init(rootURL: URL, onChange: @escaping () -> Void) {
         self.rootURL = rootURL
         self.onChange = onChange
-        watchedPaths = targets.map { target in
-            let directory = target.relativePath == "."
-                ? rootURL
-                : rootURL.appendingPathComponent(target.relativePath)
-            return (directory.path, directory.appendingPathComponent(target.outputPath).path)
-        }
         hasAccess = rootURL.startAccessingSecurityScopedResource()
-        rebuildSources()
-    }
 
-    /// 디렉터리는 생성·교체를, 파일은 기존 inode의 직접 수정을 감지한다.
-    private func rebuildSources() {
-        sources.forEach { $0.cancel() }
-        sources.removeAll()
-
-        let fm = FileManager.default
-        let directories = watchedPaths.map(\.directory)
-        let files = watchedPaths.map(\.file).filter { fm.fileExists(atPath: $0) }
-        for path in Set(directories + files) where fm.fileExists(atPath: path) {
-            let descriptor = open(path, O_EVTONLY)
-            guard descriptor >= 0 else { continue }
-            let source = DispatchSource.makeFileSystemObjectSource(
-                fileDescriptor: descriptor,
-                eventMask: [.write, .extend, .rename, .delete],
-                queue: .main
-            )
-            source.setEventHandler { [weak self] in
-                self?.schedule()
+        var context = FSEventStreamContext()
+        context.info = Unmanaged.passUnretained(self).toOpaque()
+        let callback: FSEventStreamCallback = { _, info, count, eventPaths, _, _ in
+            guard let info, count > 0,
+                  let paths = Unmanaged<CFArray>.fromOpaque(eventPaths)
+                      .takeUnretainedValue() as? [String] else { return }
+            // .env* 파일 이벤트만 반응 — node_modules/.git 등 잡음 차단
+            let relevant = paths.contains { path in
+                !path.contains("/node_modules/") && !path.contains("/.git/")
+                    && (path as NSString).lastPathComponent.hasPrefix(".env")
             }
-            source.setCancelHandler { close(descriptor) }
-            source.resume()
-            sources.append(source)
+            if relevant {
+                Unmanaged<OutputFileWatcher>.fromOpaque(info).takeUnretainedValue().onChange()
+            }
         }
-    }
-
-    private func schedule() {
-        pending?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            rebuildSources()  // atomic replace 이후 새 inode를 다시 감시
-            onChange()
+        stream = FSEventStreamCreate(
+            nil, callback, &context,
+            [rootURL.path] as CFArray,
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+            0.3,   // 연속 저장 이벤트 병합 (기존 0.2s 디바운스 대체)
+            FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents
+                                     | kFSEventStreamCreateFlagUseCFTypes)
+        )
+        if let stream {
+            FSEventStreamSetDispatchQueue(stream, .main)
+            FSEventStreamStart(stream)
         }
-        pending = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
     }
 
     func stop() {
-        pending?.cancel()
-        pending = nil
-        sources.forEach { $0.cancel() }
-        sources.removeAll()
+        if let stream {
+            FSEventStreamStop(stream)
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
+            self.stream = nil
+        }
         if hasAccess {
             rootURL.stopAccessingSecurityScopedResource()
             hasAccess = false

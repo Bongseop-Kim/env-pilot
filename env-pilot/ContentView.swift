@@ -249,7 +249,7 @@ struct ContentView: View {
         for repo in repositories {
             guard let rootURL = RepositoryService.resolveBookmark(repo) else { continue }
             let uuid = repo.uuid
-            watchers[uuid] = OutputFileWatcher(rootURL: rootURL, targets: repo.targets ?? []) {
+            watchers[uuid] = OutputFileWatcher(rootURL: rootURL) {
                 _ = LocalSyncService.reconcile(
                     repo: repo,
                     rootURL: rootURL,
@@ -355,9 +355,6 @@ struct RepositoryDetailView: View {
                     }
                     .help(".env 파일 생성, 이름/경로 변경 및 삭제")
                 }
-                Button(".env 파일 다시 찾기", systemImage: "viewfinder") { refreshEnvFiles() }
-                    .help("Repository에서 .env 파일 다시 찾기 (⌘R)")
-                    .keyboardShortcut("r", modifiers: .command)
                 Button("백업 및 공유", systemImage: "square.and.arrow.up") { showExport = true }
                     .help(".envide 백업 및 공유")
             }
