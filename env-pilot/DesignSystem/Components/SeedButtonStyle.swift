@@ -8,30 +8,17 @@ struct SeedButtonStyle: ButtonStyle {
     enum Size {
         case xsmall  // h32, padX 14, padY 6, 캡슐, t3 — 리스트 행 인라인 액션용
         case small   // h36, padX 14, padY 8
-        case medium  // h40, padX 16, padY 10
 
-        var minHeight: CGFloat {
-            switch self {
-            case .xsmall: SeedSpacing.x8
-            case .small: SeedSpacing.x9
-            case .medium: SeedSpacing.x10
-            }
-        }
-        var paddingX: CGFloat { self == .medium ? SeedSpacing.x4 : SeedSpacing.x3_5 }
-        var paddingY: CGFloat {
-            switch self {
-            case .xsmall: SeedSpacing.x1_5
-            case .small: SeedSpacing.x2
-            case .medium: SeedSpacing.x2_5
-            }
-        }
+        var minHeight: CGFloat { self == .xsmall ? SeedSpacing.x8 : SeedSpacing.x9 }
+        var paddingX: CGFloat { SeedSpacing.x3_5 }
+        var paddingY: CGFloat { self == .xsmall ? SeedSpacing.x1_5 : SeedSpacing.x2 }
         var cornerRadius: CGFloat { self == .xsmall ? SeedRadius.full : SeedRadius.r2 }
         var font: Font { self == .xsmall ? SeedTypography.bodyBold : SeedTypography.sectionBold }
         var pressedScale: CGFloat { self == .xsmall ? SeedScale.s95 : SeedScale.s97 }
     }
 
     var variant: Variant = .brandSolid
-    var size: Size = .medium
+    var size: Size = .small
     var iconOnly = false
 
     @Environment(\.isEnabled) private var isEnabled
@@ -72,7 +59,7 @@ struct SeedButtonStyle: ButtonStyle {
 
 extension ButtonStyle where Self == SeedButtonStyle {
     static func seed(_ variant: SeedButtonStyle.Variant = .brandSolid,
-                     size: SeedButtonStyle.Size = .medium) -> SeedButtonStyle {
+                     size: SeedButtonStyle.Size = .small) -> SeedButtonStyle {
         SeedButtonStyle(variant: variant, size: size)
     }
 

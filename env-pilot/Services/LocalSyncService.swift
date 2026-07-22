@@ -35,6 +35,14 @@ enum LocalSyncService {
         let fileContent: String?
         let reason: Reason
         var id: String { target.envFilePath }
+
+        var message: String {
+            switch reason {
+            case .changed: "파일 내용과 Env Pilot 값이 다릅니다"
+            case .deleted: "프로젝트에서 파일이 삭제되었습니다"
+            case .invalid: "파일 형식을 읽을 수 없습니다"
+            }
+        }
     }
 
     struct ReconcileResult {
@@ -197,12 +205,7 @@ enum LocalSyncService {
             } else {
                 localContent = nil
             }
-            let localHash: String?
-            if let localContent {
-                localHash = contentHash(localContent)
-            } else {
-                localHash = nil
-            }
+            let localHash = localContent.flatMap(contentHash)
 
             if fileExists && localHash == nil {
                 result.drifts.append(Drift(target: target, outputURL: outputURL, fileExists: true,

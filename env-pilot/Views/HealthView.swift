@@ -1,15 +1,13 @@
 import SwiftUI
 
 extension HealthStatus {
-    var seedTone: SeedTone {
+    var color: Color {
         switch self {
-        case .healthy: .positive
-        case .warning: .warning
-        case .critical: .critical
+        case .healthy: SeedColor.fgPositive
+        case .warning: SeedColor.fgWarning
+        case .critical: SeedColor.fgCritical
         }
     }
-
-    var color: Color { seedTone.fg }
 }
 
 /// Health 탭 (PRD §3.8) — 실제 env 파일이 example 키를 충족하는지 판정하고,
@@ -65,7 +63,7 @@ struct HealthView: View {
             Text("Healthy").foregroundStyle(SeedColor.fgNeutralMuted).font(SeedTypography.body)
         } else {
             // 누락 키 클릭 → 해당 Variable 입력으로 이동 (§3.8 수용 기준)
-            WrappingHStack {
+            FlowLayout(spacing: SeedSpacing.x1) {
                 ForEach(item.missingKeys, id: \.self) { key in
                     Button("\(key) 누락") {
                         onSelectMissingKey(item.filePath, key)

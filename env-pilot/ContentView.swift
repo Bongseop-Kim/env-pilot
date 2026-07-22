@@ -431,7 +431,7 @@ struct RepositoryDetailView: View {
                 VStack(spacing: 0) {
                     if let drift = selectedDrift {
                         HStack(spacing: SeedSpacing.x2) {
-                            StatusLabel(driftMessage(drift), systemImage: "exclamationmark.triangle",
+                            StatusLabel(drift.message, systemImage: "exclamationmark.triangle",
                                         tone: .warning)
                             Spacer()
                             Button("동기화…", systemImage: "arrow.triangle.2.circlepath") {
@@ -441,7 +441,7 @@ struct RepositoryDetailView: View {
                         }
                         .padding(.horizontal, SeedSpacing.x4)
                         .padding(.vertical, SeedSpacing.x2)
-                        SeedDivider()
+                        Divider()
                     } else if let issue = selectedIssue {
                         HStack(spacing: SeedSpacing.x2) {
                             StatusLabel(issue, systemImage: "exclamationmark.triangle", tone: .warning)
@@ -453,7 +453,7 @@ struct RepositoryDetailView: View {
                         }
                         .padding(.horizontal, SeedSpacing.x4)
                         .padding(.vertical, SeedSpacing.x2)
-                        SeedDivider()
+                        Divider()
                     }
                     VariablesView(target: target, pendingAddKey: $pendingAddKey)
                         .id(target.persistentModelID)
@@ -618,14 +618,6 @@ struct RepositoryDetailView: View {
         }
     }
 
-    private func driftMessage(_ drift: LocalSyncService.Drift) -> String {
-        switch drift.reason {
-        case .changed: "파일 내용과 Env Pilot 값이 다릅니다"
-        case .deleted: "프로젝트에서 파일이 삭제되었습니다"
-        case .invalid: "파일 형식을 읽을 수 없습니다"
-        }
-    }
-
     /// 탭 점 뱃지 — 열어보지 않아도 문제 여부가 보이게 (최악 심각도 색).
     /// Git 안전성은 SecuritySections와 같은 조건(hookInstalled != nil)일 때만 집계.
     private var tabBadges: [DetailTab: Color] {
@@ -665,7 +657,7 @@ struct RepositoryDetailView: View {
             ], badges: tabBadges)
             .padding(.horizontal, SeedSpacing.x4)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .overlay(alignment: .bottom) { SeedDivider() }   // 탭 인디케이터가 이 선 위에 겹친다
+            .overlay(alignment: .bottom) { Divider() }   // 탭 인디케이터가 이 선 위에 겹친다
         }
     }
 }

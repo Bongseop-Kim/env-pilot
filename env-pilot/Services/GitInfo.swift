@@ -23,10 +23,25 @@ struct GitInfo {
 
         // config: [remote "origin"] 섹션의 url =
         if let config = try? String(contentsOf: gitDir.appendingPathComponent("config"), encoding: .utf8) {
-            info.remoteURL = parseOriginURL(config)
+            info.remoteURL = configValue(config, section: "[remote\"origin\"]", key: "url")
         }
 
         return info
+    }
+
+    /// git config 텍스트에서 섹션의 키 값을 읽는다. 섹션 헤더는 공백 제거 후 비교, 키는 대소문자 무시.
+    static func configValue(_ config: String, section: String, key: String) -> String? {
+        var inSection = false
+        for rawLine in config.split(separator: "\n") {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") {
+                inSection = line.replacingOccurrences(of: " ", with: "") == section
+            } else if inSection, line.lowercased().hasPrefix(key.lowercased()),
+                      let eq = line.firstIndex(of: "=") {
+                return String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return nil
     }
 
     /// .git이 디렉토리면 그대로, 파일이면(worktree) "gitdir: <path>" 해석. Git 저장소가 아니면 nil.
@@ -42,19 +57,5 @@ struct GitInfo {
         return path.hasPrefix("/")
             ? URL(fileURLWithPath: path)
             : folderURL.appendingPathComponent(path).standardizedFileURL
-    }
-
-    private static func parseOriginURL(_ config: String) -> String? {
-        var inOrigin = false
-        for rawLine in config.split(separator: "\n") {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
-            if line.hasPrefix("[") {
-                inOrigin = line.replacingOccurrences(of: " ", with: "") == "[remote\"origin\"]"
-            } else if inOrigin, line.hasPrefix("url"),
-                      let eq = line.firstIndex(of: "=") {
-                return String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
-            }
-        }
-        return nil
     }
 }

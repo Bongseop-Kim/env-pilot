@@ -9,7 +9,6 @@ enum GitSafetyService {
     struct Report: Identifiable {
         let targetPath: String           // 실제 env 파일의 Repository 상대 경로
         let outputRelativePath: String   // repo 루트 기준, 예: "apps/shop/.env.local"
-        let outputExists: Bool
         let isIgnored: Bool
         let isTracked: Bool
         let permissionsOK: Bool?         // 파일 없으면 nil
@@ -55,7 +54,7 @@ enum GitSafetyService {
                 }
 
                 return Report(targetPath: target.envFilePath, outputRelativePath: relativePath,
-                              outputExists: exists, isIgnored: ignored, isTracked: tracked,
+                              isIgnored: ignored, isTracked: tracked,
                               permissionsOK: permissionsOK)
             }
     }
@@ -138,26 +137,12 @@ enum GitSafetyService {
         guard let gitDir = GitInfo.gitDirectory(of: rootURL) else { return nil }
         var hooksDir = gitDir.appendingPathComponent("hooks")
         if let config = try? String(contentsOf: gitDir.appendingPathComponent("config"), encoding: .utf8),
-           let path = parseHooksPath(config) {
+           let path = GitInfo.configValue(config, section: "[core]", key: "hookspath") {
             hooksDir = path.hasPrefix("/")
                 ? URL(fileURLWithPath: path)
                 : rootURL.appendingPathComponent(path).standardizedFileURL
         }
         return hooksDir.appendingPathComponent("pre-commit")
-    }
-
-    private static func parseHooksPath(_ config: String) -> String? {
-        var inCore = false
-        for rawLine in config.split(separator: "\n") {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
-            if line.hasPrefix("[") {
-                inCore = line == "[core]"
-            } else if inCore, line.lowercased().hasPrefix("hookspath"),
-                      let eq = line.firstIndex(of: "=") {
-                return String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
-            }
-        }
-        return nil
     }
 
     /// 기존 hook 내용에 guard 블록 삽입. 이미 마커가 있으면 블록만 교체, 없으면 끝에 append (§3.19).
