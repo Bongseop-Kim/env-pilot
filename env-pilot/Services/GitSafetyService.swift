@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 /// 출력 파일의 Git 안전성 검사 (PRD §3.11).
-/// ponytail: 간이 gitignore 매칭(fnmatch) + .git/index 바이트 검색 — git CLI는 샌드박스
+/// ponytail: 간이 gitignore 매칭(fnmatch) + .git/index 직접 파싱 — git CLI는 샌드박스
 /// 자식 프로세스 권한 문제가 있어 미사용. negation(!) 패턴 등 완전 호환은 아님.
 enum GitSafetyService {
 
@@ -47,7 +47,7 @@ enum GitSafetyService {
                     ignored = isIgnored(relativePath: relativePath, patterns: patterns)
                 }
 
-                let tracked = indexData.map { $0.range(of: Data(relativePath.utf8)) != nil } ?? false
+                let tracked = indexData.map { isTracked(relativePath: relativePath, indexData: $0) } ?? false
 
                 var permissionsOK: Bool? = nil
                 if exists, let perms = try? fm.attributesOfItem(atPath: outputURL.path)[.posixPermissions] as? NSNumber {
@@ -58,6 +58,43 @@ enum GitSafetyService {
                               outputExists: exists, isIgnored: ignored, isTracked: tracked,
                               permissionsOK: permissionsOK)
             }
+    }
+
+    /// .git/index(v2/v3)를 파싱해 추적 경로를 정확히 비교한다.
+    /// 단순 바이트 검색은 ".env"가 추적 중인 ".env.example"에도 매칭되는 오탐이 있었다.
+    static func isTracked(relativePath: String, indexData: Data) -> Bool {
+        let bytes = [UInt8](indexData)
+        func u32(_ at: Int) -> UInt32 {
+            UInt32(bytes[at]) << 24 | UInt32(bytes[at + 1]) << 16
+                | UInt32(bytes[at + 2]) << 8 | UInt32(bytes[at + 3])
+        }
+        guard bytes.count >= 12, bytes[0...3].elementsEqual("DIRC".utf8) else { return false }
+        let version = u32(4)
+        guard version == 2 || version == 3 else {
+            // ponytail: v4(경로 prefix 압축)는 미지원 — 기존 바이트 검색 폴백 (드묾, 오탐 감수)
+            return indexData.range(of: Data(relativePath.utf8)) != nil
+        }
+        let target = [UInt8](relativePath.utf8)
+        var offset = 12
+        for _ in 0..<u32(8) {
+            guard offset + 62 <= bytes.count else { return false }
+            let flags = Int(bytes[offset + 60]) << 8 | Int(bytes[offset + 61])
+            let fixed = (version >= 3 && flags & 0x4000 != 0) ? 64 : 62  // extended flag → 2바이트 추가
+            let nameStart = offset + fixed
+            var nameLen = flags & 0xFFF
+            if nameLen == 0xFFF {  // 4095자 초과 경로는 NUL 종료로 판정
+                guard nameStart < bytes.count,
+                      let nul = bytes[nameStart...].firstIndex(of: 0) else { return false }
+                nameLen = nul - nameStart
+            }
+            guard nameStart + nameLen <= bytes.count else { return false }
+            if nameLen == target.count,
+               bytes[nameStart..<nameStart + nameLen].elementsEqual(target) {
+                return true
+            }
+            offset += ((fixed + nameLen) / 8 + 1) * 8  // 엔트리는 NUL 포함 8바이트 배수로 패딩
+        }
+        return false
     }
 
     /// 루트 .gitignore에 한 줄 추가 (§3.11). 파일명 패턴은 gitignore 규칙상 모든 하위 경로에 적용된다.
