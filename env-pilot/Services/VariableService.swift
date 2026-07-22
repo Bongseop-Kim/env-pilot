@@ -123,6 +123,21 @@ enum VariableService {
         )
     }
 
+    // MARK: - History 배치 (§3.10)
+
+    // ponytail: 정적 배치 컨텍스트 — 모든 변경이 메인 스레드에서 일어난다는 전제.
+    // 파라미터를 모든 시그니처에 관통시키는 대신 batch { } 스코프로 출처를 지정한다.
+    private static var currentBatch: (source: String, id: UUID)?
+
+    /// body 안의 변경을 하나의 행동으로 묶어 기록한다. 중첩되면 바깥 배치가 유지된다.
+    @discardableResult
+    static func batch<T>(_ source: String, _ body: () throws -> T) rethrows -> T {
+        if currentBatch != nil { return try body() }
+        currentBatch = (source, UUID())
+        defer { currentBatch = nil }
+        return try body()
+    }
+
     /// §3.10: 값 자체는 저장하지 않고 SHA256 앞 8자만.
     private static func record(_ action: String, _ variable: Variable, oldValue: String?, context: ModelContext) {
         let hash = oldValue.map { old in
@@ -134,7 +149,9 @@ enum VariableService {
             environmentName: variable.environmentName,
             repositoryName: variable.target?.repository?.name ?? "",
             targetPath: variable.target?.envFilePath ?? "",
-            oldValueHash: hash
+            oldValueHash: hash,
+            source: currentBatch?.source ?? "manual",
+            batchId: currentBatch?.id
         ))
     }
 }

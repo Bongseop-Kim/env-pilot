@@ -329,12 +329,14 @@ enum LocalSyncService {
         let scope = target.envFilePath
         let plan = ImportService.plan(content: content, target: target, environmentName: scope)
         do {
-            try ImportService.execute(items: plan.items,
-                                      useFileValue: Set(plan.items.map(\.key)),
-                                      target: target,
-                                      environmentName: scope,
-                                      newKeysAreSecret: true,
-                                      context: context)
+            try VariableService.batch("localSync") {
+                try ImportService.execute(items: plan.items,
+                                          useFileValue: Set(plan.items.map(\.key)),
+                                          target: target,
+                                          environmentName: scope,
+                                          newKeysAreSecret: true,
+                                          context: context)
+            }
             let verification = ImportService.plan(
                 content: content, target: target, environmentName: scope)
             return verification.warnings.isEmpty && verification.items.allSatisfy { item in

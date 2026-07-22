@@ -39,31 +39,33 @@ enum ImportService {
     static func execute(items: [Item], useFileValue: Set<String>, target: Target,
                         environmentName: String, newKeysAreSecret: Bool = false,
                         context: ModelContext) throws {
-        for item in items {
-            switch item.kind {
-            case .add:
-                // 무시 마커가 있던 키면 마커를 실제 변수로 되살린다
-                if let marker = (target.variables ?? []).first(where: {
-                    $0.key == item.key && $0.environmentName == environmentName && $0.isIgnored
-                }) {
-                    marker.isIgnored = false
-                    if newKeysAreSecret {
-                        try VariableService.setSecret(marker, true, context: context)
+        try VariableService.batch("fileImport") {
+            for item in items {
+                switch item.kind {
+                case .add:
+                    // 무시 마커가 있던 키면 마커를 실제 변수로 되살린다
+                    if let marker = (target.variables ?? []).first(where: {
+                        $0.key == item.key && $0.environmentName == environmentName && $0.isIgnored
+                    }) {
+                        marker.isIgnored = false
+                        if newKeysAreSecret {
+                            try VariableService.setSecret(marker, true, context: context)
+                        }
+                        try VariableService.updateValue(marker, to: item.newValue, context: context)
+                    } else {
+                        try VariableService.create(key: item.key, value: item.newValue,
+                                                   isSecret: newKeysAreSecret,
+                                                   environmentName: environmentName, target: target, context: context)
                     }
-                    try VariableService.updateValue(marker, to: item.newValue, context: context)
-                } else {
-                    try VariableService.create(key: item.key, value: item.newValue,
-                                               isSecret: newKeysAreSecret,
-                                               environmentName: environmentName, target: target, context: context)
+                case .conflict where useFileValue.contains(item.key):
+                    if let variable = (target.variables ?? []).first(where: {
+                        $0.key == item.key && $0.environmentName == environmentName && !$0.isIgnored
+                    }) {
+                        try VariableService.updateValue(variable, to: item.newValue, context: context)
+                    }
+                default:
+                    break
                 }
-            case .conflict where useFileValue.contains(item.key):
-                if let variable = (target.variables ?? []).first(where: {
-                    $0.key == item.key && $0.environmentName == environmentName && !$0.isIgnored
-                }) {
-                    try VariableService.updateValue(variable, to: item.newValue, context: context)
-                }
-            default:
-                break
             }
         }
         try context.save()

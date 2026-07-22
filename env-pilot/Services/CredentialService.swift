@@ -18,6 +18,7 @@ enum CredentialService {
         credential.repository = repository
         context.insert(credential)
         try SecretStore.save(password, account: account(for: credential))
+        record("created", credential, context: context)
         try context.save()
         return credential
     }
@@ -30,6 +31,7 @@ enum CredentialService {
         guard password(of: credential) != newValue else { return }
         try SecretStore.save(newValue, account: account(for: credential))
         credential.updatedAt = Date()
+        record("updated", credential, context: context)
         try context.save()
     }
 
@@ -41,13 +43,27 @@ enum CredentialService {
         credential.urlString = urlString?.isEmpty == true ? nil : urlString
         credential.note = note?.isEmpty == true ? nil : note
         credential.updatedAt = Date()
+        record("updated", credential, context: context)
         try context.save()
     }
 
     static func delete(_ credential: Credential, context: ModelContext) throws {
         SecretStore.delete(account: account(for: credential))
+        record("deleted", credential, context: context)
         context.delete(credential)
         try context.save()
+    }
+
+    /// Accounts 변경도 History에 남긴다 — key 자리에 label, 비밀번호 값/해시는 저장하지 않음.
+    private static func record(_ action: String, _ credential: Credential, context: ModelContext) {
+        context.insert(HistoryEntry(
+            action: action,
+            key: credential.label,
+            environmentName: "",
+            repositoryName: credential.repository?.name ?? "",
+            targetPath: "",
+            source: "credential"
+        ))
     }
 
     /// urlString을 열 수 있는 URL로. 스키마가 없으면 https:// 를 붙인다.

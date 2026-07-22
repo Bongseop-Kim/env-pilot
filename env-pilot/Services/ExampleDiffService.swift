@@ -60,8 +60,10 @@ enum ExampleDiffService {
         if !exists {
             switch action {
             case .addToFile:
-                try VariableService.create(key: key, value: "", environmentName: scope,
-                                           target: target, context: context)
+                try VariableService.batch("exampleSync") {
+                    try VariableService.create(key: key, value: "", environmentName: scope,
+                                               target: target, context: context)
+                }
             case .ignore:
                 // 무시 마커 — Health(§3.8)가 "무시 키 제외" 판정에 사용. History 기록 없음.
                 let marker = Variable(key: key, value: "", environmentName: scope)
@@ -78,10 +80,12 @@ enum ExampleDiffService {
     static func resolveRemoved(key: String, action: RemovedAction, target: Target,
                                context: ModelContext) throws {
         if action == .deleteFromFile {
-            for variable in (target.variables ?? []).filter({
-                $0.key == key && $0.environmentName == target.envFilePath
-            }) {
-                try VariableService.delete(variable, context: context)
+            try VariableService.batch("exampleSync") {
+                for variable in (target.variables ?? []).filter({
+                    $0.key == key && $0.environmentName == target.envFilePath
+                }) {
+                    try VariableService.delete(variable, context: context)
+                }
             }
         }
         removeFromSnapshot(key: key, target: target)

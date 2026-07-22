@@ -66,6 +66,21 @@ struct VariableChecks {
         let remaining = try ctx.fetch(FetchDescriptor<Variable>())
         assert(remaining.count == 1 && remaining.first?.environmentName == "Production", "삭제")
 
+        // History 배치: batch { } 안 변경은 같은 batchId + 출처, 밖은 manual/batchId nil
+        try VariableService.batch("fileImport") {
+            try VariableService.create(key: "A_KEY", value: "1",
+                                       environmentName: "Local", target: target, context: ctx)
+            try VariableService.batch("localSync") {  // 중첩 시 바깥 배치 유지
+                try VariableService.create(key: "B_KEY", value: "2",
+                                           environmentName: "Local", target: target, context: ctx)
+            }
+        }
+        let allHistory = try ctx.fetch(FetchDescriptor<HistoryEntry>())
+        let batched = allHistory.filter { $0.source == "fileImport" }
+        assert(batched.count == 2, "배치 기록 2건, 중첩은 바깥 출처 (got \(batched.count))")
+        assert(batched[0].batchId != nil && batched[0].batchId == batched[1].batchId, "같은 batchId로 묶임")
+        assert(allHistory.contains { $0.source == "manual" && $0.batchId == nil }, "수동 변경은 manual/단건")
+
         print("✅ VariableService: all checks passed")
     }
 }
