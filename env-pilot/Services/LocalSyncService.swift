@@ -3,6 +3,7 @@ import SwiftData
 import CryptoKit
 import Dispatch
 import Darwin
+import CoreServices
 
 extension Notification.Name {
     static let localEnvFileDidChange = Notification.Name("envPilot.localEnvFileDidChange")
@@ -34,6 +35,14 @@ enum LocalSyncService {
         let fileContent: String?
         let reason: Reason
         var id: String { target.envFilePath }
+
+        var message: String {
+            switch reason {
+            case .changed: "파일 내용과 Env Pilot 값이 다릅니다"
+            case .deleted: "프로젝트에서 파일이 삭제되었습니다"
+            case .invalid: "파일 형식을 읽을 수 없습니다"
+            }
+        }
     }
 
     struct ReconcileResult {
@@ -41,6 +50,7 @@ enum LocalSyncService {
         var issues: [String] = []
         var changed = false
         var isSynced = false
+        var safety: [GitSafetyService.Report] = []  // reconcile이 이미 계산한 안전성 리포트 — 호출부 재계산 방지
     }
 
     static let skippedDirectoryNames: Set<String> = [
@@ -156,8 +166,10 @@ enum LocalSyncService {
             catch { result.issues.append(".env 파일 목록 저장 실패: \(error.localizedDescription)") }
         }
 
+        let safetyReports = GitSafetyService.check(repo: repo, rootURL: rootURL)
+        result.safety = safetyReports
         var safety: [String: GitSafetyService.Report] = [:]
-        for report in GitSafetyService.check(repo: repo, rootURL: rootURL) {
+        for report in safetyReports {
             safety[report.targetPath] = report
         }
 
@@ -196,12 +208,7 @@ enum LocalSyncService {
             } else {
                 localContent = nil
             }
-            let localHash: String?
-            if let localContent {
-                localHash = contentHash(localContent)
-            } else {
-                localHash = nil
-            }
+            let localHash = localContent.flatMap(contentHash)
 
             if fileExists && localHash == nil {
                 result.drifts.append(Drift(target: target, outputURL: outputURL, fileExists: true,
@@ -328,12 +335,14 @@ enum LocalSyncService {
         let scope = target.envFilePath
         let plan = ImportService.plan(content: content, target: target, environmentName: scope)
         do {
-            try ImportService.execute(items: plan.items,
-                                      useFileValue: Set(plan.items.map(\.key)),
-                                      target: target,
-                                      environmentName: scope,
-                                      newKeysAreSecret: true,
-                                      context: context)
+            try VariableService.batch("localSync") {
+                try ImportService.execute(items: plan.items,
+                                          useFileValue: Set(plan.items.map(\.key)),
+                                          target: target,
+                                          environmentName: scope,
+                                          newKeysAreSecret: true,
+                                          context: context)
+            }
             let verification = ImportService.plan(
                 content: content, target: target, environmentName: scope)
             return verification.warnings.isEmpty && verification.items.allSatisfy { item in
@@ -436,69 +445,55 @@ enum LocalSyncService {
     }
 }
 
-/// Target 디렉터리와 output 파일을 함께 감시하는 네이티브 watcher.
+/// Repository 루트 전체를 FSEvents로 재귀 감시하는 watcher.
+/// 등록된 target뿐 아니라 새 폴더에 새로 생긴 .env 파일도 감지한다.
 final class OutputFileWatcher {
-    private var sources: [DispatchSourceFileSystemObject] = []
-    private var pending: DispatchWorkItem?
+    private var stream: FSEventStreamRef?
     private let rootURL: URL
-    private let watchedPaths: [(directory: String, file: String)]
     private let onChange: () -> Void
     private var hasAccess: Bool
 
-    init(rootURL: URL, targets: [Target], onChange: @escaping () -> Void) {
+    init(rootURL: URL, onChange: @escaping () -> Void) {
         self.rootURL = rootURL
         self.onChange = onChange
-        watchedPaths = targets.map { target in
-            let directory = target.relativePath == "."
-                ? rootURL
-                : rootURL.appendingPathComponent(target.relativePath)
-            return (directory.path, directory.appendingPathComponent(target.outputPath).path)
-        }
         hasAccess = rootURL.startAccessingSecurityScopedResource()
-        rebuildSources()
-    }
 
-    /// 디렉터리는 생성·교체를, 파일은 기존 inode의 직접 수정을 감지한다.
-    private func rebuildSources() {
-        sources.forEach { $0.cancel() }
-        sources.removeAll()
-
-        let fm = FileManager.default
-        let directories = watchedPaths.map(\.directory)
-        let files = watchedPaths.map(\.file).filter { fm.fileExists(atPath: $0) }
-        for path in Set(directories + files) where fm.fileExists(atPath: path) {
-            let descriptor = open(path, O_EVTONLY)
-            guard descriptor >= 0 else { continue }
-            let source = DispatchSource.makeFileSystemObjectSource(
-                fileDescriptor: descriptor,
-                eventMask: [.write, .extend, .rename, .delete],
-                queue: .main
-            )
-            source.setEventHandler { [weak self] in
-                self?.schedule()
+        var context = FSEventStreamContext()
+        context.info = Unmanaged.passUnretained(self).toOpaque()
+        let callback: FSEventStreamCallback = { _, info, count, eventPaths, _, _ in
+            guard let info, count > 0,
+                  let paths = Unmanaged<CFArray>.fromOpaque(eventPaths)
+                      .takeUnretainedValue() as? [String] else { return }
+            // .env* 파일 이벤트만 반응 — node_modules/.git 등 잡음 차단
+            let relevant = paths.contains { path in
+                !path.contains("/node_modules/") && !path.contains("/.git/")
+                    && (path as NSString).lastPathComponent.hasPrefix(".env")
             }
-            source.setCancelHandler { close(descriptor) }
-            source.resume()
-            sources.append(source)
+            if relevant {
+                Unmanaged<OutputFileWatcher>.fromOpaque(info).takeUnretainedValue().onChange()
+            }
         }
-    }
-
-    private func schedule() {
-        pending?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            rebuildSources()  // atomic replace 이후 새 inode를 다시 감시
-            onChange()
+        stream = FSEventStreamCreate(
+            nil, callback, &context,
+            [rootURL.path] as CFArray,
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+            0.3,   // 연속 저장 이벤트 병합 (기존 0.2s 디바운스 대체)
+            FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents
+                                     | kFSEventStreamCreateFlagUseCFTypes)
+        )
+        if let stream {
+            FSEventStreamSetDispatchQueue(stream, .main)
+            FSEventStreamStart(stream)
         }
-        pending = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
     }
 
     func stop() {
-        pending?.cancel()
-        pending = nil
-        sources.forEach { $0.cancel() }
-        sources.removeAll()
+        if let stream {
+            FSEventStreamStop(stream)
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
+            self.stream = nil
+        }
         if hasAccess {
             rootURL.stopAccessingSecurityScopedResource()
             hasAccess = false

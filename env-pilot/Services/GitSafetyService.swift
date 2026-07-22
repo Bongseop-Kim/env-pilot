@@ -2,18 +2,17 @@ import Foundation
 import SwiftData
 
 /// 출력 파일의 Git 안전성 검사 (PRD §3.11).
-/// ponytail: 간이 gitignore 매칭(fnmatch) + .git/index 바이트 검색 — git CLI는 샌드박스
+/// ponytail: 간이 gitignore 매칭(fnmatch) + .git/index 직접 파싱 — git CLI는 샌드박스
 /// 자식 프로세스 권한 문제가 있어 미사용. negation(!) 패턴 등 완전 호환은 아님.
 enum GitSafetyService {
 
     struct Report: Identifiable {
         let targetPath: String           // 실제 env 파일의 Repository 상대 경로
         let outputRelativePath: String   // repo 루트 기준, 예: "apps/shop/.env.local"
-        let outputExists: Bool
         let isIgnored: Bool
         let isTracked: Bool
         let permissionsOK: Bool?         // 파일 없으면 nil
-        var id: String { targetPath }
+        var id: String { "safety-" + targetPath }   // HealthService.Item.id(filePath)와 같은 List에 있어 충돌 방지
         var hasIssue: Bool { !isIgnored || isTracked || permissionsOK == false }
     }
 
@@ -47,7 +46,7 @@ enum GitSafetyService {
                     ignored = isIgnored(relativePath: relativePath, patterns: patterns)
                 }
 
-                let tracked = indexData.map { $0.range(of: Data(relativePath.utf8)) != nil } ?? false
+                let tracked = indexData.map { isTracked(relativePath: relativePath, indexData: $0) } ?? false
 
                 var permissionsOK: Bool? = nil
                 if exists, let perms = try? fm.attributesOfItem(atPath: outputURL.path)[.posixPermissions] as? NSNumber {
@@ -55,9 +54,46 @@ enum GitSafetyService {
                 }
 
                 return Report(targetPath: target.envFilePath, outputRelativePath: relativePath,
-                              outputExists: exists, isIgnored: ignored, isTracked: tracked,
+                              isIgnored: ignored, isTracked: tracked,
                               permissionsOK: permissionsOK)
             }
+    }
+
+    /// .git/index(v2/v3)를 파싱해 추적 경로를 정확히 비교한다.
+    /// 단순 바이트 검색은 ".env"가 추적 중인 ".env.example"에도 매칭되는 오탐이 있었다.
+    static func isTracked(relativePath: String, indexData: Data) -> Bool {
+        let bytes = [UInt8](indexData)
+        func u32(_ at: Int) -> UInt32 {
+            UInt32(bytes[at]) << 24 | UInt32(bytes[at + 1]) << 16
+                | UInt32(bytes[at + 2]) << 8 | UInt32(bytes[at + 3])
+        }
+        guard bytes.count >= 12, bytes[0...3].elementsEqual("DIRC".utf8) else { return false }
+        let version = u32(4)
+        guard version == 2 || version == 3 else {
+            // ponytail: v4(경로 prefix 압축)는 미지원 — 기존 바이트 검색 폴백 (드묾, 오탐 감수)
+            return indexData.range(of: Data(relativePath.utf8)) != nil
+        }
+        let target = [UInt8](relativePath.utf8)
+        var offset = 12
+        for _ in 0..<u32(8) {
+            guard offset + 62 <= bytes.count else { return false }
+            let flags = Int(bytes[offset + 60]) << 8 | Int(bytes[offset + 61])
+            let fixed = (version >= 3 && flags & 0x4000 != 0) ? 64 : 62  // extended flag → 2바이트 추가
+            let nameStart = offset + fixed
+            var nameLen = flags & 0xFFF
+            if nameLen == 0xFFF {  // 4095자 초과 경로는 NUL 종료로 판정
+                guard nameStart < bytes.count,
+                      let nul = bytes[nameStart...].firstIndex(of: 0) else { return false }
+                nameLen = nul - nameStart
+            }
+            guard nameStart + nameLen <= bytes.count else { return false }
+            if nameLen == target.count,
+               bytes[nameStart..<nameStart + nameLen].elementsEqual(target) {
+                return true
+            }
+            offset += ((fixed + nameLen) / 8 + 1) * 8  // 엔트리는 NUL 포함 8바이트 배수로 패딩
+        }
+        return false
     }
 
     /// 루트 .gitignore에 한 줄 추가 (§3.11). 파일명 패턴은 gitignore 규칙상 모든 하위 경로에 적용된다.
@@ -101,26 +137,12 @@ enum GitSafetyService {
         guard let gitDir = GitInfo.gitDirectory(of: rootURL) else { return nil }
         var hooksDir = gitDir.appendingPathComponent("hooks")
         if let config = try? String(contentsOf: gitDir.appendingPathComponent("config"), encoding: .utf8),
-           let path = parseHooksPath(config) {
+           let path = GitInfo.configValue(config, section: "[core]", key: "hookspath") {
             hooksDir = path.hasPrefix("/")
                 ? URL(fileURLWithPath: path)
                 : rootURL.appendingPathComponent(path).standardizedFileURL
         }
         return hooksDir.appendingPathComponent("pre-commit")
-    }
-
-    private static func parseHooksPath(_ config: String) -> String? {
-        var inCore = false
-        for rawLine in config.split(separator: "\n") {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
-            if line.hasPrefix("[") {
-                inCore = line == "[core]"
-            } else if inCore, line.lowercased().hasPrefix("hookspath"),
-                      let eq = line.firstIndex(of: "=") {
-                return String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
-            }
-        }
-        return nil
     }
 
     /// 기존 hook 내용에 guard 블록 삽입. 이미 마커가 있으면 블록만 교체, 없으면 끝에 append (§3.19).

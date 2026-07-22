@@ -16,8 +16,8 @@ struct ImportSheet: View {
     @State private var errorMessage: String?
 
     init(items: [ImportService.Item], warnings: [String], target: Target,
-         newKeysAreSecret: Bool = false, missingVariables: [Variable] = [],
-         onImported: @escaping () -> Void = {}) {
+         newKeysAreSecret: Bool, missingVariables: [Variable],
+         onImported: @escaping () -> Void) {
         self.items = items
         self.warnings = warnings
         self.target = target

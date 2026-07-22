@@ -134,20 +134,25 @@ final class Variable {
 @Model
 final class HistoryEntry {
     var timestamp: Date = Date()
-    var action: String = ""            // "created" | "updated" | "deleted"
+    var action: String = ""            // "created" | "updated" | "renamed" | "deleted"
     var key: String = ""
     var environmentName: String = ""
     var repositoryName: String = ""
     var targetPath: String = ""
     var oldValueHash: String? = nil    // SHA256 앞 8자 — 값 자체는 저장하지 않음
+    var source: String = "manual"      // "manual" | "fileImport" | "bundleImport" | "exampleSync" | "localSync" | "credential"
+    var batchId: UUID? = nil           // 같은 행동(import/sync)으로 묶인 변경 — UI에서 그룹 표시
 
-    init(action: String, key: String, environmentName: String, repositoryName: String, targetPath: String, oldValueHash: String? = nil) {
+    init(action: String, key: String, environmentName: String, repositoryName: String, targetPath: String,
+         oldValueHash: String? = nil, source: String = "manual", batchId: UUID? = nil) {
         self.action = action
         self.key = key
         self.environmentName = environmentName
         self.repositoryName = repositoryName
         self.targetPath = targetPath
         self.oldValueHash = oldValueHash
+        self.source = source
+        self.batchId = batchId
     }
 }
 

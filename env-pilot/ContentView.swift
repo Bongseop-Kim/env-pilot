@@ -24,6 +24,7 @@ struct ContentView: View {
     @State private var healthByRepo: [String: HealthStatus] = [:]
     @State private var repoPendingDelete: Repository?
     @State private var outputWatchers: [String: OutputFileWatcher] = [:]
+    @State private var lastSyncedRevisions: [String: Int] = [:]  // repo별 마지막 sync 시점 콘텐츠 리비전
 
     private var selectedRepository: Repository? {
         guard case .repository(let id) = selection else { return nil }
@@ -191,7 +192,7 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didBecomeActiveNotification)) { _ in
             env_pilotApp.dedupeAfterSync(context)  // §3.13: CloudKit 병합 후 Workspace 중복 정리
-            restartOutputWatchers()
+            // ponytail: watcher 재생성은 watcherRevision onChange가 대상 변경 시에만 처리 — 포커스마다 N개 스트림 teardown/rebuild하던 것 제거.
             syncLocalFiles()
             refreshSidebarHealth()
         }
@@ -228,8 +229,11 @@ struct ContentView: View {
     }
 
     private func syncLocalFiles() {
-        for repo in repositories {
+        // ponytail: 콘텐츠가 바뀐 repo만 reconcile — 변수 1개 편집/포커스 복귀에 전 repo 트리 재순회하던 것 제거.
+        // reconcile이 모델을 바꿀 수 있어(adopt/target 발견) 리비전은 실행 후 값으로 저장한다.
+        for repo in repositories where lastSyncedRevisions[repo.uuid] != repo.envContentRevision {
             syncLocalFile(for: repo)
+            lastSyncedRevisions[repo.uuid] = repo.envContentRevision
         }
     }
 
@@ -249,7 +253,7 @@ struct ContentView: View {
         for repo in repositories {
             guard let rootURL = RepositoryService.resolveBookmark(repo) else { continue }
             let uuid = repo.uuid
-            watchers[uuid] = OutputFileWatcher(rootURL: rootURL, targets: repo.targets ?? []) {
+            watchers[uuid] = OutputFileWatcher(rootURL: rootURL) {
                 _ = LocalSyncService.reconcile(
                     repo: repo,
                     rootURL: rootURL,
@@ -355,9 +359,6 @@ struct RepositoryDetailView: View {
                     }
                     .help(".env 파일 생성, 이름/경로 변경 및 삭제")
                 }
-                Button(".env 파일 다시 찾기", systemImage: "viewfinder") { refreshEnvFiles() }
-                    .help("Repository에서 .env 파일 다시 찾기 (⌘R)")
-                    .keyboardShortcut("r", modifiers: .command)
                 Button("백업 및 공유", systemImage: "square.and.arrow.up") { showExport = true }
                     .help(".envide 백업 및 공유")
             }
@@ -434,7 +435,7 @@ struct RepositoryDetailView: View {
                 VStack(spacing: 0) {
                     if let drift = selectedDrift {
                         HStack(spacing: SeedSpacing.x2) {
-                            StatusLabel(driftMessage(drift), systemImage: "exclamationmark.triangle",
+                            StatusLabel(drift.message, systemImage: "exclamationmark.triangle",
                                         tone: .warning)
                             Spacer()
                             Button("동기화…", systemImage: "arrow.triangle.2.circlepath") {
@@ -444,7 +445,7 @@ struct RepositoryDetailView: View {
                         }
                         .padding(.horizontal, SeedSpacing.x4)
                         .padding(.vertical, SeedSpacing.x2)
-                        SeedDivider()
+                        Divider()
                     } else if let issue = selectedIssue {
                         HStack(spacing: SeedSpacing.x2) {
                             StatusLabel(issue, systemImage: "exclamationmark.triangle", tone: .warning)
@@ -456,7 +457,7 @@ struct RepositoryDetailView: View {
                         }
                         .padding(.horizontal, SeedSpacing.x4)
                         .padding(.vertical, SeedSpacing.x2)
-                        SeedDivider()
+                        Divider()
                     }
                     VariablesView(target: target, pendingAddKey: $pendingAddKey)
                         .id(target.persistentModelID)
@@ -479,43 +480,12 @@ struct RepositoryDetailView: View {
         case .health:
             HealthView(
                 items: healthItems,
-                safetyReports: safetyReports,
-                hookInstalled: hookInstalled,
-                historyLeaks: historyLeaks,
-                claudeEnvDenied: claudeEnvDenied,
-                agentsRuleInstalled: agentsRuleInstalled,
                 onSelectMissingKey: { filePath, key in
                     selectedEnvFilePath = filePath
                     tab = .variables
                     pendingAddKey = key
                 },
-                onAddToGitignore: { fileName in
-                    guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
-                    try? GitSafetyService.addToGitignore(line: fileName, rootURL: rootURL)
-                    refreshHealth()
-                    refreshDiffs()
-                },
-                onFixPermissions: { report in
-                    guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
-                    let outputURL = rootURL.appendingPathComponent(report.outputRelativePath)
-                    try? GitSafetyService.fixPermissions(outputURL: outputURL, rootURL: rootURL)
-                    refreshHealth()
-                },
-                onInstallHook: { installOrRemoveHook(install: true) },
-                onRemoveHook: { installOrRemoveHook(install: false) },
-                onAddClaudeDeny: {
-                    guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
-                    let fileNames = targets.map(\.outputPath)
-                    do { try GitSafetyService.addClaudeEnvDenyRules(fileNames: fileNames, rootURL: rootURL) }
-                    catch { syncError = error.localizedDescription }
-                    refreshHealth()
-                },
-                onAddAgentsRule: {
-                    guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
-                    do { try GitSafetyService.addAgentsMdEnvRule(rootURL: rootURL) }
-                    catch { syncError = error.localizedDescription }
-                    refreshHealth()
-                }
+                security: securitySections
             )
         case .gitChanges:
             GitChangesView(
@@ -537,6 +507,44 @@ struct RepositoryDetailView: View {
         }
     }
 
+    private var securitySections: SecuritySections {
+        SecuritySections(
+            safetyReports: safetyReports,
+            hookInstalled: hookInstalled,
+            historyLeaks: historyLeaks,
+            claudeEnvDenied: claudeEnvDenied,
+            agentsRuleInstalled: agentsRuleInstalled,
+            onAddToGitignore: { fileName in
+                guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
+                try? GitSafetyService.addToGitignore(line: fileName, rootURL: rootURL)
+                refreshHealth()
+                refreshDiffs()
+            },
+            onFixPermissions: { report in
+                guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
+                let outputURL = rootURL.appendingPathComponent(report.outputRelativePath)
+                try? GitSafetyService.fixPermissions(outputURL: outputURL, rootURL: rootURL)
+                refreshDiffs()   // 권한 변경 → safetyReports는 reconcile이 갱신
+                refreshHealth()
+            },
+            onInstallHook: { installOrRemoveHook(install: true) },
+            onRemoveHook: { installOrRemoveHook(install: false) },
+            onAddClaudeDeny: {
+                guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
+                let fileNames = targets.map(\.outputPath)
+                do { try GitSafetyService.addClaudeEnvDenyRules(fileNames: fileNames, rootURL: rootURL) }
+                catch { syncError = error.localizedDescription }
+                refreshHealth()
+            },
+            onAddAgentsRule: {
+                guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
+                do { try GitSafetyService.addAgentsMdEnvRule(rootURL: rootURL) }
+                catch { syncError = error.localizedDescription }
+                refreshHealth()
+            }
+        )
+    }
+
     /// §3.19 — pre-commit hook 설치/제거.
     private func installOrRemoveHook(install: Bool) {
         guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
@@ -554,6 +562,7 @@ struct RepositoryDetailView: View {
         let sync = LocalSyncService.reconcile(repo: repo, rootURL: rootURL, context: context)
         drifts = sync.drifts
         syncIssues = sync.issues
+        safetyReports = sync.safety  // reconcile이 계산한 것을 재사용 — refreshHealth에서 중복 check 안 함
         diffs = ExampleDiffService.scan(repo: repo, rootURL: rootURL, context: context)
     }
 
@@ -591,7 +600,7 @@ struct RepositoryDetailView: View {
     private func refreshHealth() {
         guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
         healthItems = HealthService.check(repo: repo, rootURL: rootURL)
-        safetyReports = GitSafetyService.check(repo: repo, rootURL: rootURL)
+        // safetyReports는 refreshDiffs(reconcile)가 단일 출처. 여기서 재계산하지 않는다.
         claudeEnvDenied = GitSafetyService.claudeEnvDenyStatus(rootURL: rootURL)
         agentsRuleInstalled = GitSafetyService.agentsMdEnvRuleStatus(rootURL: rootURL)
         hookInstalled = GitInfo.gitDirectory(of: rootURL) != nil
@@ -615,12 +624,20 @@ struct RepositoryDetailView: View {
         }
     }
 
-    private func driftMessage(_ drift: LocalSyncService.Drift) -> String {
-        switch drift.reason {
-        case .changed: "파일 내용과 Env Pilot 값이 다릅니다"
-        case .deleted: "프로젝트에서 파일이 삭제되었습니다"
-        case .invalid: "파일 형식을 읽을 수 없습니다"
-        }
+    /// 탭 점 뱃지 — 열어보지 않아도 문제 여부가 보이게 (최악 심각도 색).
+    /// Git 안전성은 SecuritySections와 같은 조건(hookInstalled != nil)일 때만 집계.
+    private var tabBadges: [DetailTab: Color] {
+        var badges: [DetailTab: Color] = [:]
+        let critical = healthItems.contains { $0.status == .critical }
+            || safetyReports.contains { !$0.isIgnored || $0.isTracked }
+            || historyLeaks?.isEmpty == false
+        let warning = healthItems.contains { $0.status == .warning }
+            || (hookInstalled != nil && safetyReports.contains { $0.permissionsOK == false })
+            || claudeEnvDenied == false || !agentsRuleInstalled
+        if critical { badges[.health] = SeedColor.fgCritical }
+        else if warning { badges[.health] = SeedColor.fgWarning }
+        if !diffs.isEmpty || !drifts.isEmpty { badges[.gitChanges] = SeedColor.fgWarning }
+        return badges
     }
 
     /// env 파일 선택은 윈도우 툴바에 있다. 동기화 액션은 콘텐츠의 diff 배너에 둔다.
@@ -641,12 +658,12 @@ struct RepositoryDetailView: View {
             SeedTabs(selection: $tab, items: [
                 (DetailTab.variables, "Variables", "curlybraces"),
                 (DetailTab.accounts, "Accounts", "person.badge.key"),
-                (DetailTab.health, "Health", "checkmark.shield"),
-                (DetailTab.gitChanges, "Changes", "arrow.triangle.2.circlepath"),
-            ])
+                (DetailTab.health, "Health", "checkmark.seal"),
+                (DetailTab.gitChanges, "Sync", "arrow.triangle.2.circlepath"),
+            ], badges: tabBadges)
             .padding(.horizontal, SeedSpacing.x4)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .overlay(alignment: .bottom) { SeedDivider() }   // 탭 인디케이터가 이 선 위에 겹친다
+            .overlay(alignment: .bottom) { Divider() }   // 탭 인디케이터가 이 선 위에 겹친다
         }
     }
 }
@@ -657,9 +674,10 @@ struct AuthGraceBadge: View {
     @State private var showExtendConfirm = false
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { timeline in
-            let remaining = Int(BiometricGate.graceRemaining(at: timeline.date).rounded(.up))
-            if BiometricGate.isEnabled {
+        // ponytail: isEnabled 게이트를 TimelineView 밖으로 — 생체인증 미사용 시 매초 리드로우 자체를 없앤다.
+        if BiometricGate.isEnabled {
+            TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                let remaining = Int(BiometricGate.graceRemaining(at: timeline.date).rounded(.up))
                 Button {
                     if remaining > 0 {
                         showExtendConfirm = true
@@ -681,12 +699,12 @@ struct AuthGraceBadge: View {
                       ? "잠금 해제됨 — \(remaining)초 동안 비밀번호 확인 없이 Secret을 표시·복사할 수 있습니다. 클릭하면 1분으로 초기화"
                       : "잠금 상태 — 클릭해서 잠금 해제")
             }
-        }
-        .alert("잠금 해제 시간을 다시 1분으로 초기화할까요?", isPresented: $showExtendConfirm) {
+            .alert("잠금 해제 시간을 다시 1분으로 초기화할까요?", isPresented: $showExtendConfirm) {
             Button("초기화") { BiometricGate.extendGrace() }
             Button("취소", role: .cancel) {}
-        } message: {
-            Text("남은 시간과 관계없이 지금부터 다시 \(Int(BiometricGate.graceInterval))초 동안 비밀번호 확인 없이 Secret을 표시·복사할 수 있습니다.")
+            } message: {
+                Text("남은 시간과 관계없이 지금부터 다시 \(Int(BiometricGate.graceInterval))초 동안 비밀번호 확인 없이 Secret을 표시·복사할 수 있습니다.")
+            }
         }
     }
 }

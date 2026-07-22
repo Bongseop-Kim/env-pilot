@@ -1,13 +1,5 @@
 import SwiftUI
 
-/// 단순 줄바꿈 HStack 대체 — 항목이 많으면 여러 줄로.
-struct WrappingHStack<Content: View>: View {
-    @ViewBuilder let content: Content
-    var body: some View {
-        FlowLayout(spacing: SeedSpacing.x1) { content }
-    }
-}
-
 /// 항목을 이상적 크기 그대로 두고 줄 단위로 흘리는 최소 flow layout.
 /// (LazyVGrid adaptive는 셀 폭에 맞춰 칩 내부 텍스트를 줄바꿈시켜 부적합)
 struct FlowLayout: Layout {

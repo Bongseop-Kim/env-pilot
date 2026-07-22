@@ -22,14 +22,38 @@ struct GitSafetyChecks {
         assert(!ignored(".env.local", [".env"]), "다른 파일명은 미매칭")
         assert(!ignored(".env.local", []), "패턴 없으면 미매칭")
 
+        // .git/index 파싱 — 정확한 경로 매칭 (".env" ≠ ".env.example")
+        func indexV2(_ paths: [String]) -> Data {
+            var data = Data("DIRC".utf8)
+            func u32(_ v: UInt32) { data.append(contentsOf: [
+                UInt8(v >> 24 & 0xFF), UInt8(v >> 16 & 0xFF), UInt8(v >> 8 & 0xFF), UInt8(v & 0xFF)]) }
+            u32(2); u32(UInt32(paths.count))
+            for path in paths.sorted() {
+                data.append(Data(count: 60))   // ctime..sha1 = 60바이트 (테스트에선 0)
+                let name = Array(path.utf8)
+                data.append(contentsOf: [UInt8(name.count >> 8), UInt8(name.count & 0xFF)])  // flags = 경로 길이
+                data.append(contentsOf: name)
+                let pad = (62 + name.count) % 8
+                data.append(Data(count: pad == 0 ? 8 : 8 - pad))   // NUL 포함 8바이트 배수 패딩
+            }
+            return data
+        }
+        let idx = indexV2([".env.example", "apps/store/.env.example", "src/main.swift"])
+        assert(!GitSafetyService.isTracked(relativePath: ".env", indexData: idx), ".env.example에 오탐 없음")
+        assert(!GitSafetyService.isTracked(relativePath: "apps/store/.env", indexData: idx), "하위 경로 오탐 없음")
+        assert(GitSafetyService.isTracked(relativePath: ".env.example", indexData: idx), "정확한 경로 매칭")
+        assert(GitSafetyService.isTracked(relativePath: "src/main.swift", indexData: idx), "여러 엔트리 순회")
+        assert(!GitSafetyService.isTracked(relativePath: "main.swift", indexData: idx), "suffix 오탐 없음")
+        assert(!GitSafetyService.isTracked(relativePath: ".env", indexData: Data()), "빈/손상 index는 미추적")
+
         // Report 통합 검사 — 실제 폴더 구조로
         let fm = FileManager.default
         let root = fm.temporaryDirectory.appendingPathComponent("safety-check-\(ProcessInfo.processInfo.processIdentifier)")
         try fm.createDirectory(at: root.appendingPathComponent(".git"), withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: root) }
         try "ref: refs/heads/main\n".write(to: root.appendingPathComponent(".git/HEAD"), atomically: true, encoding: .utf8)
-        // .env.tracked 경로가 들어있는 가짜 index
-        try Data("DIRC....env.tracked....".utf8).write(to: root.appendingPathComponent(".git/index"))
+        // .env.tracked만 추적 중인 v2 index (.env.example은 오탐 검증용)
+        try indexV2([".env.tracked", ".env.example"]).write(to: root.appendingPathComponent(".git/index"))
         try ".env.local\n".write(to: root.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
         try "A=1\n".write(to: root.appendingPathComponent(".env.local"), atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: root.appendingPathComponent(".env.local").path)

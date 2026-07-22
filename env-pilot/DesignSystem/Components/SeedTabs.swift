@@ -17,13 +17,6 @@ struct SeedTabs<Value: Hashable>: View {
         self.badges = badges
     }
 
-    init(selection: Binding<Value>, items: [(Value, String)],
-         badges: [Value: Color] = [:]) {
-        self._selection = selection
-        self.items = items.map { ($0.0, $0.1, nil) }
-        self.badges = badges
-    }
-
     var body: some View {
         HStack(spacing: 0) {
             ForEach(items, id: \.0) { item in

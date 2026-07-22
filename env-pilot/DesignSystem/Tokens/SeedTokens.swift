@@ -1,5 +1,4 @@
-// Generated from seed-design rootage (dimension/radius/font/duration/timing-function/scale/shadow.json) — 수정 금지.
-// 재생성: node scripts/generate-seed-tokens.mjs
+// seed-design rootage(dimension/radius/font/duration/timing-function/scale/shadow.json)에서 이식한 토큰. seed 스펙과 어긋나지 않게 값 수정 주의.
 
 import SwiftUI
 

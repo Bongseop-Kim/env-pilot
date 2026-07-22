@@ -202,6 +202,13 @@ enum BundleCodec {
     /// 없는 Repository/실제 파일 binding은 생성한다 (새 Repository는 경로 미연결 상태).
     static func execute(payload: Payload, useFileValue: Set<String>,
                         workspace: Workspace, context: ModelContext) throws {
+        try VariableService.batch("bundleImport") {
+            try merge(payload: payload, useFileValue: useFileValue, workspace: workspace, context: context)
+        }
+    }
+
+    private static func merge(payload: Payload, useFileValue: Set<String>,
+                              workspace: Workspace, context: ModelContext) throws {
         for repoData in payload.repositories {
             let repo: Repository
             if let found = findRepo(repoData, in: workspace) {

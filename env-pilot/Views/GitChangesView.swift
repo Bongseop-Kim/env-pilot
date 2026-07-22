@@ -86,7 +86,7 @@ struct GitChangesView: View {
                         Image(systemName: "pencil.line").foregroundStyle(SeedColor.fgBrand)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(drift.target.envFilePath).fontDesign(.monospaced)
-                            Text(driftMessage(drift))
+                            Text(drift.message)
                                 .font(SeedTypography.body)
                                 .foregroundStyle(SeedColor.fgNeutralMuted)
                         }
@@ -105,14 +105,6 @@ struct GitChangesView: View {
                     .seedListRow()
                 }
             }
-        }
-    }
-
-    private func driftMessage(_ drift: LocalSyncService.Drift) -> String {
-        switch drift.reason {
-        case .changed: "Env Pilot과 파일 내용이 다릅니다"
-        case .deleted: "프로젝트에서 파일이 삭제되었습니다"
-        case .invalid: "파일 형식을 확인해야 합니다"
         }
     }
 

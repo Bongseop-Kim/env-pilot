@@ -24,11 +24,9 @@ struct SeedChipStyle: ButtonStyle {
         guard isEnabled else { return SeedColor.bgDisabled }
         switch tone {
         case .neutral: return pressed ? SeedColor.bgNeutralWeakPressed : SeedColor.bgNeutralWeak
-        case .brand: return pressed ? SeedColor.bgBrandWeakPressed : SeedColor.bgBrandWeak
         case .positive: return pressed ? SeedColor.bgPositiveWeakPressed : SeedColor.bgPositiveWeak
         case .warning: return pressed ? SeedColor.bgWarningWeakPressed : SeedColor.bgWarningWeak
         case .critical: return pressed ? SeedColor.bgCriticalWeakPressed : SeedColor.bgCriticalWeak
-        case .informative: return pressed ? SeedColor.bgInformativeWeakPressed : SeedColor.bgInformativeWeak
         }
     }
 }

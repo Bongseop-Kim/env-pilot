@@ -65,14 +65,8 @@ enum EnvFileService {
 
     static func location(for input: String) throws -> Location {
         let path = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !path.isEmpty, !path.hasPrefix("/"),
-              path.rangeOfCharacter(from: .controlCharacters) == nil else {
-            throw EnvFileError.invalidPath
-        }
-
-        let components = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-        guard components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }),
-              let fileName = components.last else {
+        let components = try directoryComponents(path)
+        guard let fileName = components.last else {
             throw EnvFileError.invalidPath
         }
         guard LocalSyncService.isManagedEnvFileName(fileName) else {

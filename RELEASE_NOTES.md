@@ -1,10 +1,8 @@
-# Env Pilot 1.0
+# Env Pilot 1.1
 
-첫 공개 릴리스입니다.
-
-- Repository와 Monorepo Target별 Environment 변수 관리
-- `.env.example` 변경 감지, 비교, Health 검사, 변경 이력
-- Keychain 기반 Secret 보관과 iCloud 동기화
-- `.env` 생성, Drift 감지, Git Safety 검사와 pre-commit hook
-- 암호화 `.envide` 가져오기/내보내기와 메뉴바 빠른 실행
-- GitHub Releases 기반 자동 업데이트
+- Health 탭에 보안 검사 통합 — secret 노출, Git 히스토리에 커밋된 `.env` 감지
+- FSEvents 기반 저장소 감시로 `.env` 변경 실시간 반영
+- 변경 이력을 출처(import/sync)별로 묶어 요약 표시
+- 변수·자격증명 편집 지원 (비밀번호 등 secret은 보존)
+- Seed 디자인 시스템 전면 도입으로 일관된 UI와 타이포그래피
+- Environment를 Repository 단위로 범위화 (기존 데이터 자동 마이그레이션)
