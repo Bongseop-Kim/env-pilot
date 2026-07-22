@@ -12,41 +12,49 @@ extension HealthStatus {
     var color: Color { seedTone.fg }
 }
 
-/// Health 탭 (PRD §3.8) — 실제 env 파일이 example 키를 충족하는지 판정.
-/// secret 노출 방지(Git Safety·히스토리·hook·AI)는 SecurityView로 분리.
+/// Health 탭 (PRD §3.8) — 실제 env 파일이 example 키를 충족하는지 판정하고,
+/// secret 노출 방지(Git Safety·히스토리·hook·AI)를 SecuritySections로 함께 보여준다.
 struct HealthView: View {
     let items: [HealthService.Item]
     let onSelectMissingKey: (_ filePath: String, _ key: String) -> Void
+    let security: SecuritySections
 
     var body: some View {
-        if items.isEmpty {
-            ContentUnavailableView("판정 대상 없음", systemImage: "questionmark.circle",
-                                   description: Text(".env.example과 함께 확인할 실제 env 파일이 없습니다"))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)   // 상단 정렬 VStack 안에서 중앙 배치
-        } else {
-            List {
-                if items.allSatisfy({ $0.status == .healthy }) {
-                    Label("All Healthy — 모든 .env 파일이 example 키를 충족합니다",
-                          systemImage: "checkmark.seal.fill")
-                        .foregroundStyle(SeedColor.fgPositive)
-                        .seedListRow()
-                } else {
-                    healthSections
-                }
+        List {
+            envSection
+            security
+        }
+    }
+
+    @ViewBuilder private var envSection: some View {
+        Section("환경변수") {
+            if items.isEmpty {
+                Label("판정 대상 없음 — .env.example과 함께 확인할 실제 env 파일이 없습니다",
+                      systemImage: "questionmark.circle")
+                    .foregroundStyle(SeedColor.fgNeutralMuted)
+                    .seedListRow()
+            } else if items.allSatisfy({ $0.status == .healthy }) {
+                Label("All Healthy — 모든 .env 파일이 example 키를 충족합니다",
+                      systemImage: "checkmark.seal.fill")
+                    .foregroundStyle(SeedColor.fgPositive)
+                    .seedListRow()
+            } else {
+                healthSections
             }
         }
     }
 
+    /// SecuritySections의 행과 같은 구조 — 파일 경로 위, 상세(키 칩) 아래.
     @ViewBuilder private var healthSections: some View {
         ForEach(items) { item in
-            HStack(alignment: .top) {
-                Image(systemName: item.status.iconName)
-                    .foregroundStyle(item.status.color)
-                Text(item.filePath)
-                    .fontDesign(.monospaced)
-                    .frame(width: 180, alignment: .leading)
+            VStack(alignment: .leading, spacing: 4) {
+                Label {
+                    Text(item.filePath).fontDesign(.monospaced)
+                } icon: {
+                    Image(systemName: item.status.iconName)
+                        .foregroundStyle(item.status.color)
+                }
                 keyChips(item)
-                Spacer()
             }
             .seedListRow()
         }

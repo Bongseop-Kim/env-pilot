@@ -13,7 +13,7 @@ enum GitSafetyService {
         let isIgnored: Bool
         let isTracked: Bool
         let permissionsOK: Bool?         // 파일 없으면 nil
-        var id: String { targetPath }
+        var id: String { "safety-" + targetPath }   // HealthService.Item.id(filePath)와 같은 List에 있어 충돌 방지
         var hasIssue: Bool { !isIgnored || isTracked || permissionsOK == false }
     }
 

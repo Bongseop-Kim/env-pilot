@@ -295,7 +295,7 @@ struct RepositoryDetailView: View {
     @State private var envFileEditRequest: EnvFileEditRequest?
     @State private var envFilePendingDelete: Target?
 
-    enum DetailTab { case variables, accounts, health, security, gitChanges }
+    enum DetailTab { case variables, accounts, health, gitChanges }
 
     private var isLinked: Bool { RepositoryService.resolveBookmark(repo) != nil }
     private var targets: [Target] { (repo.targets ?? []).sorted { $0.envFilePath < $1.envFilePath } }
@@ -480,42 +480,8 @@ struct RepositoryDetailView: View {
                     selectedEnvFilePath = filePath
                     tab = .variables
                     pendingAddKey = key
-                }
-            )
-        case .security:
-            SecurityView(
-                safetyReports: safetyReports,
-                hookInstalled: hookInstalled,
-                historyLeaks: historyLeaks,
-                claudeEnvDenied: claudeEnvDenied,
-                agentsRuleInstalled: agentsRuleInstalled,
-                onAddToGitignore: { fileName in
-                    guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
-                    try? GitSafetyService.addToGitignore(line: fileName, rootURL: rootURL)
-                    refreshHealth()
-                    refreshDiffs()
                 },
-                onFixPermissions: { report in
-                    guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
-                    let outputURL = rootURL.appendingPathComponent(report.outputRelativePath)
-                    try? GitSafetyService.fixPermissions(outputURL: outputURL, rootURL: rootURL)
-                    refreshHealth()
-                },
-                onInstallHook: { installOrRemoveHook(install: true) },
-                onRemoveHook: { installOrRemoveHook(install: false) },
-                onAddClaudeDeny: {
-                    guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
-                    let fileNames = targets.map(\.outputPath)
-                    do { try GitSafetyService.addClaudeEnvDenyRules(fileNames: fileNames, rootURL: rootURL) }
-                    catch { syncError = error.localizedDescription }
-                    refreshHealth()
-                },
-                onAddAgentsRule: {
-                    guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
-                    do { try GitSafetyService.addAgentsMdEnvRule(rootURL: rootURL) }
-                    catch { syncError = error.localizedDescription }
-                    refreshHealth()
-                }
+                security: securitySections
             )
         case .gitChanges:
             GitChangesView(
@@ -535,6 +501,43 @@ struct RepositoryDetailView: View {
                 onOverwriteDrift: { applyPilotValue(for: $0.target) }
             )
         }
+    }
+
+    private var securitySections: SecuritySections {
+        SecuritySections(
+            safetyReports: safetyReports,
+            hookInstalled: hookInstalled,
+            historyLeaks: historyLeaks,
+            claudeEnvDenied: claudeEnvDenied,
+            agentsRuleInstalled: agentsRuleInstalled,
+            onAddToGitignore: { fileName in
+                guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
+                try? GitSafetyService.addToGitignore(line: fileName, rootURL: rootURL)
+                refreshHealth()
+                refreshDiffs()
+            },
+            onFixPermissions: { report in
+                guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
+                let outputURL = rootURL.appendingPathComponent(report.outputRelativePath)
+                try? GitSafetyService.fixPermissions(outputURL: outputURL, rootURL: rootURL)
+                refreshHealth()
+            },
+            onInstallHook: { installOrRemoveHook(install: true) },
+            onRemoveHook: { installOrRemoveHook(install: false) },
+            onAddClaudeDeny: {
+                guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
+                let fileNames = targets.map(\.outputPath)
+                do { try GitSafetyService.addClaudeEnvDenyRules(fileNames: fileNames, rootURL: rootURL) }
+                catch { syncError = error.localizedDescription }
+                refreshHealth()
+            },
+            onAddAgentsRule: {
+                guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
+                do { try GitSafetyService.addAgentsMdEnvRule(rootURL: rootURL) }
+                catch { syncError = error.localizedDescription }
+                refreshHealth()
+            }
+        )
     }
 
     /// §3.19 — pre-commit hook 설치/제거.
@@ -623,6 +626,22 @@ struct RepositoryDetailView: View {
         }
     }
 
+    /// 탭 점 뱃지 — 열어보지 않아도 문제 여부가 보이게 (최악 심각도 색).
+    /// Git 안전성은 SecuritySections와 같은 조건(hookInstalled != nil)일 때만 집계.
+    private var tabBadges: [DetailTab: Color] {
+        var badges: [DetailTab: Color] = [:]
+        let critical = healthItems.contains { $0.status == .critical }
+            || safetyReports.contains { !$0.isIgnored || $0.isTracked }
+            || historyLeaks?.isEmpty == false
+        let warning = healthItems.contains { $0.status == .warning }
+            || (hookInstalled != nil && safetyReports.contains { $0.permissionsOK == false })
+            || claudeEnvDenied == false || !agentsRuleInstalled
+        if critical { badges[.health] = SeedColor.fgCritical }
+        else if warning { badges[.health] = SeedColor.fgWarning }
+        if !diffs.isEmpty || !drifts.isEmpty { badges[.gitChanges] = SeedColor.fgWarning }
+        return badges
+    }
+
     /// env 파일 선택은 윈도우 툴바에 있다. 동기화 액션은 콘텐츠의 diff 배너에 둔다.
     private var header: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -642,9 +661,8 @@ struct RepositoryDetailView: View {
                 (DetailTab.variables, "Variables", "curlybraces"),
                 (DetailTab.accounts, "Accounts", "person.badge.key"),
                 (DetailTab.health, "Health", "checkmark.seal"),
-                (DetailTab.security, "Security", "lock.shield"),
-                (DetailTab.gitChanges, "Changes", "arrow.triangle.2.circlepath"),
-            ])
+                (DetailTab.gitChanges, "Sync", "arrow.triangle.2.circlepath"),
+            ], badges: tabBadges)
             .padding(.horizontal, SeedSpacing.x4)
             .frame(maxWidth: .infinity, alignment: .leading)
             .overlay(alignment: .bottom) { SeedDivider() }   // 탭 인디케이터가 이 선 위에 겹친다

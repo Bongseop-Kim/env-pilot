@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Security 탭 — secret 노출 방지.
+/// Health 탭의 "Secret 노출" 섹션 묶음 — HealthView의 List 안에 들어간다.
 /// Git Safety(§3.11, 현재 상태) + Git 히스토리(과거 노출) + pre-commit hook(§3.19) + AI 에이전트.
-struct SecurityView: View {
+struct SecuritySections: View {
     let safetyReports: [GitSafetyService.Report]
     let hookInstalled: Bool?   // nil = Git 저장소 아님 → Git 섹션 전체 숨김
     let historyLeaks: [String]? // Git 히스토리에서 발견된 .env 파일명. nil = 비Git 또는 스캔 중
@@ -16,14 +16,12 @@ struct SecurityView: View {
     let onAddAgentsRule: () -> Void
 
     var body: some View {
-        List {
-            if hookInstalled != nil {
-                safetySection
-                historySection
-                hookSection
-            }
-            agentSection
+        if hookInstalled != nil {
+            safetySection
+            historySection
+            hookSection
         }
+        agentSection
     }
 
     /// 현재 상태 검사: .gitignore 등재 여부, 현재 커밋(tracked) 여부, 파일 권한(0600).
