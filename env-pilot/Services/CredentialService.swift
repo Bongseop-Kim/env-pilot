@@ -33,6 +33,17 @@ enum CredentialService {
         try context.save()
     }
 
+    /// 비밀번호 외 필드 일괄 수정 — Keychain 계정명은 uuid 기반이라 이동이 없다.
+    static func update(_ credential: Credential, label: String, username: String,
+                       urlString: String?, note: String?, context: ModelContext) throws {
+        credential.label = label
+        credential.username = username
+        credential.urlString = urlString?.isEmpty == true ? nil : urlString
+        credential.note = note?.isEmpty == true ? nil : note
+        credential.updatedAt = Date()
+        try context.save()
+    }
+
     static func delete(_ credential: Credential, context: ModelContext) throws {
         SecretStore.delete(account: account(for: credential))
         context.delete(credential)

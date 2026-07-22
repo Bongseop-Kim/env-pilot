@@ -62,6 +62,27 @@ enum VariableService {
         try context.save()
     }
 
+    /// 키 이름 변경 — Secret이면 Keychain 계정명이 키에 묶여 있어 값을 옮겨 저장한다.
+    static func rename(_ variable: Variable, to newKey: String, context: ModelContext) throws {
+        guard variable.key != newKey else { return }
+        guard EnvParser.isValidKey(newKey) else { throw VariableError.invalidKey(newKey) }
+        let duplicate = (variable.target?.variables ?? []).contains {
+            $0.key == newKey && $0.environmentName == variable.environmentName
+        }
+        guard !duplicate else { throw VariableError.duplicateKey(newKey) }
+        if variable.isSecret {
+            let current = value(of: variable)
+            SecretStore.delete(account: account(for: variable))
+            variable.key = newKey
+            try SecretStore.save(current, account: account(for: variable))
+        } else {
+            variable.key = newKey
+        }
+        variable.updatedAt = Date()
+        record("renamed", variable, oldValue: nil, context: context)
+        try context.save()
+    }
+
     static func updateNote(_ variable: Variable, to note: String?, context: ModelContext) throws {
         variable.note = (note?.isEmpty == true) ? nil : note
         try context.save()

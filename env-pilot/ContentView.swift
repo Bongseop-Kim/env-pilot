@@ -58,14 +58,15 @@ struct ContentView: View {
             List(selection: $selection) {
                 Section("Repositories") {
                     ForEach(repositories) { repo in
+                        let status = healthByRepo[repo.uuid] ?? .healthy
                         HStack {
-                            Label(repo.name, systemImage: "folder")
-                            Spacer()
-                            if let status = healthByRepo[repo.uuid], status != .healthy {
+                            Label {
+                                Text(repo.name)
+                            } icon: {
                                 Image(systemName: status.iconName)
                                     .foregroundStyle(status.color)
-                                    .font(SeedTypography.caption)
                             }
+                            Spacer()
                             Menu {
                                 Button("삭제", systemImage: "trash", role: .destructive) {
                                     repoPendingDelete = repo
@@ -173,6 +174,7 @@ struct ContentView: View {
                 placeholder
             }
         }
+        .background(ToolbarDisplayModeFixer())
         .sheet(isPresented: Binding(presence: $bundleData)) {
             if let bundleData, let workspace = workspaces.first {
                 BundleImportSheet(data: bundleData, workspace: workspace)
@@ -316,6 +318,7 @@ struct RepositoryDetailView: View {
         .toolbar {
             ToolbarItemGroup {
                 AuthGraceBadge()
+                Spacer()   // 잠금 배지는 왼쪽, 나머지는 오른쪽 (space-between)
                 if tab == .variables, let target = selectedTarget {
                     if targets.count > 1 {
                         Picker("Env 파일", selection: Binding(
@@ -612,12 +615,6 @@ struct RepositoryDetailView: View {
         }
     }
 
-    /// 사이드바 뱃지와 같은 기준(§3.8 최악 값)으로 Health 탭에 상태 점을 표시한다.
-    private var tabBadges: [DetailTab: Color] {
-        let status = HealthService.overall(healthItems)
-        return status == .healthy ? [:] : [.health: status.color]
-    }
-
     /// env 파일 선택은 윈도우 툴바에 있다. 동기화 액션은 콘텐츠의 diff 배너에 둔다.
     private var header: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -638,7 +635,7 @@ struct RepositoryDetailView: View {
                 (DetailTab.accounts, "Accounts", "person.badge.key"),
                 (DetailTab.health, "Health", "checkmark.shield"),
                 (DetailTab.gitChanges, "Changes", "arrow.triangle.2.circlepath"),
-            ], badges: tabBadges)
+            ])
             .padding(.horizontal, SeedSpacing.x4)
             .frame(maxWidth: .infinity, alignment: .leading)
             .overlay(alignment: .bottom) { SeedDivider() }   // 탭 인디케이터가 이 선 위에 겹친다
@@ -646,18 +643,56 @@ struct RepositoryDetailView: View {
     }
 }
 
-/// 인증 성공 후 60초 grace 카운트다운 — 이 시간 동안은 비밀번호 확인 없이
-/// Secret 표시·복사가 된다는 걸 눈에 보이게 한다 (BiometricGate.graceInterval).
+/// 잠금 상태 배지 — 잠김: 자물쇠(클릭 시 인증으로 해제), 해제: 열린 자물쇠 + 남은 초(클릭 시 연장).
+/// 아이콘은 항상 표시해 배지가 나타났다 사라지며 툴바가 흔들리는 것을 막는다 (BiometricGate.graceInterval).
 struct AuthGraceBadge: View {
+    @State private var showExtendConfirm = false
+
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { timeline in
             let remaining = Int(BiometricGate.graceRemaining(at: timeline.date).rounded(.up))
-            if remaining > 0 {
-                Label("잠금 해제 \(remaining)초", systemImage: "lock.open.fill")
-                    .foregroundStyle(SeedColor.fgPositive)
-                    .monospacedDigit()
-                    .help("인증 완료 — \(remaining)초 동안 비밀번호 확인 없이 Secret을 표시·복사할 수 있습니다")
+            if BiometricGate.isEnabled {
+                Button {
+                    if remaining > 0 {
+                        showExtendConfirm = true
+                    } else {
+                        Task { _ = await BiometricGate.authorize(reason: "Secret 잠금 해제") }
+                    }
+                } label: {
+                    HStack(spacing: SeedSpacing.x1) {
+                        Image(systemName: remaining > 0 ? "lock.open.fill" : "lock.fill")
+                            .foregroundStyle(remaining > 0 ? SeedColor.fgPositive : SeedColor.fgNeutralMuted)
+                        if remaining > 0 {
+                            Text("\(remaining)초")
+                                .monospacedDigit()
+                                .foregroundStyle(SeedColor.fgPositive)
+                        }
+                    }
+                }
+                .help(remaining > 0
+                      ? "잠금 해제됨 — \(remaining)초 동안 비밀번호 확인 없이 Secret을 표시·복사할 수 있습니다. 클릭하면 1분으로 초기화"
+                      : "잠금 상태 — 클릭해서 잠금 해제")
             }
+        }
+        .alert("잠금 해제 시간을 다시 1분으로 초기화할까요?", isPresented: $showExtendConfirm) {
+            Button("초기화") { BiometricGate.extendGrace() }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("남은 시간과 관계없이 지금부터 다시 \(Int(BiometricGate.graceInterval))초 동안 비밀번호 확인 없이 Secret을 표시·복사할 수 있습니다.")
+        }
+    }
+}
+
+/// SwiftUI에 노출되지 않은 NSToolbar 설정 — 표시 방식을 icon only로 고정하고
+/// 툴바 우클릭의 "아이콘만 보기/아이콘 및 텍스트" 선택 메뉴를 없앤다.
+struct ToolbarDisplayModeFixer: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { NSView() }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            guard let toolbar = nsView.window?.toolbar else { return }
+            toolbar.displayMode = .iconOnly
+            toolbar.allowsDisplayModeCustomization = false
         }
     }
 }

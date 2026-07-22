@@ -13,6 +13,7 @@ struct VariablesView: View {
     @State private var snackbar: SeedSnackbarMessage?
     @State private var pendingExampleContent: String?   // §3.17 덮어쓰기 확인 대기 중인 내용
     @State private var variablePendingDelete: Variable?
+    @State private var variableToEdit: Variable?
 
     private var variables: [Variable] {
         (target.variables ?? [])
@@ -30,6 +31,7 @@ struct VariablesView: View {
             ForEach(variables) { variable in
                 VariableRow(variable: variable, onError: { errorMessage = $0 },
                             onNotify: { snackbar = $0 },
+                            onEdit: { editVariable(variable) },
                             onToggleSecret: { setSecret(variable, to: !variable.isSecret) },
                             onDelete: { variablePendingDelete = variable })
             }
@@ -86,6 +88,9 @@ struct VariablesView: View {
         .sheet(isPresented: $showAdd) {
             AddVariableSheet(target: target, initialKey: addSheetKey)
         }
+        .sheet(item: $variableToEdit) { variable in
+            AddVariableSheet(target: target, variable: variable)
+        }
         .onChange(of: pendingAddKey, initial: true) {
             if let key = pendingAddKey {
                 addSheetKey = key
@@ -95,6 +100,16 @@ struct VariablesView: View {
         }
         .errorAlert($errorMessage)
         .snackbar($snackbar)
+    }
+
+    /// 수정 시트는 Secret 값을 평문으로 프리필하므로 열기 전에 인증한다.
+    private func editVariable(_ variable: Variable) {
+        Task {
+            if variable.isSecret {
+                guard await BiometricGate.authorize(reason: "\(variable.key) 값을 표시") else { return }
+            }
+            variableToEdit = variable
+        }
     }
 
     private func setSecret(_ variable: Variable, to isSecret: Bool) {
@@ -161,6 +176,7 @@ private struct VariableRow: View {
     let variable: Variable
     let onError: (String) -> Void
     let onNotify: (SeedSnackbarMessage) -> Void
+    let onEdit: () -> Void
     let onToggleSecret: () -> Void
     let onDelete: () -> Void
     @Environment(\.modelContext) private var context
@@ -233,6 +249,7 @@ private struct VariableRow: View {
                 .accessibilityLabel(savedFlash ? "저장됨" : "")
 
             Menu {
+                Button("수정…", systemImage: "pencil", action: onEdit)
                 Button(variable.isSecret ? "Secret 해제" : "Secret으로 전환",
                        systemImage: variable.isSecret ? "lock.open" : "lock",
                        action: onToggleSecret)
@@ -312,24 +329,30 @@ private struct VariableRow: View {
     }
 }
 
+/// 추가/수정 겸용 — variable이 있으면 수정 모드 (Secret 값은 호출측에서 인증 후 연다).
 private struct AddVariableSheet: View {
     let target: Target
+    let variable: Variable?
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var key: String
-    @State private var value = ""
-    @State private var note = ""
-    @State private var isSecret = false
+    @State private var value: String
+    @State private var note: String
+    @State private var isSecret: Bool
     @State private var errorMessage: String?
 
-    init(target: Target, initialKey: String = "") {
+    init(target: Target, initialKey: String = "", variable: Variable? = nil) {
         self.target = target
-        _key = State(initialValue: initialKey)
+        self.variable = variable
+        _key = State(initialValue: variable?.key ?? initialKey)
+        _value = State(initialValue: variable.map { VariableService.value(of: $0) } ?? "")
+        _note = State(initialValue: variable?.note ?? "")
+        _isSecret = State(initialValue: variable?.isSecret ?? false)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: SeedSpacing.x5) {
-            Text("새 키")
+            Text(variable == nil ? "새 키" : "키 수정")
                 .font(SeedTypography.title)
                 .foregroundStyle(SeedColor.fgNeutral)
             SeedField("KEY") {
@@ -353,7 +376,7 @@ private struct AddVariableSheet: View {
                 Button("취소") { dismiss() }
                     .buttonStyle(.seed(.neutralWeak, size: .small))
                     .keyboardShortcut(.cancelAction)
-                Button("추가", action: add)
+                Button(variable == nil ? "추가" : "저장", action: save)
                     .buttonStyle(.seed(.brandSolid, size: .small))
                     .keyboardShortcut(.defaultAction)
                     .disabled(key.isEmpty)
@@ -363,17 +386,27 @@ private struct AddVariableSheet: View {
         .frame(width: 420)
     }
 
-    private func add() {
+    private func save() {
+        let trimmedKey = key.trimmingCharacters(in: .whitespaces)
         do {
-            try VariableService.create(
-                key: key.trimmingCharacters(in: .whitespaces),
-                value: value,
-                note: note.isEmpty ? nil : note,
-                isSecret: isSecret,
-                environmentName: target.envFilePath,
-                target: target,
-                context: context
-            )
+            if let variable {
+                try VariableService.rename(variable, to: trimmedKey, context: context)
+                if variable.isSecret != isSecret {
+                    try VariableService.setSecret(variable, isSecret, context: context)
+                }
+                try VariableService.updateValue(variable, to: value, context: context)
+                try VariableService.updateNote(variable, to: note, context: context)
+            } else {
+                try VariableService.create(
+                    key: trimmedKey,
+                    value: value,
+                    note: note.isEmpty ? nil : note,
+                    isSecret: isSecret,
+                    environmentName: target.envFilePath,
+                    target: target,
+                    context: context
+                )
+            }
             dismiss()
         } catch {
             errorMessage = error.localizedDescription

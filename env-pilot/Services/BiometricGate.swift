@@ -19,6 +19,9 @@ enum BiometricGate {
         return max(0, graceInterval - date.timeIntervalSince(last))
     }
 
+    /// grace를 지금부터 다시 60초로 채운다 — 툴바 배지의 연장 액션용.
+    static func extendGrace() { lastSuccess = Date() }
+
     /// 인증 통과 여부. 설정 off / 60초 grace 내 / 인증 수단 없음이면 즉시 true.
     static func authorize(reason: String) async -> Bool {
         guard isEnabled else { return true }

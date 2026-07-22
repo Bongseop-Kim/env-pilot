@@ -12,6 +12,7 @@ struct CredentialsView: View {
     @State private var errorMessage: String?
     @State private var snackbar: SeedSnackbarMessage?
     @State private var credentialPendingDelete: Credential?
+    @State private var credentialToEdit: Credential?
 
     private var credentials: [Credential] {
         (repo.credentials ?? [])
@@ -29,6 +30,7 @@ struct CredentialsView: View {
             ForEach(credentials) { credential in
                 CredentialRow(credential: credential, onError: { errorMessage = $0 },
                               onNotify: { snackbar = $0 },
+                              onEdit: { credentialToEdit = credential },
                               onDelete: { credentialPendingDelete = credential })
             }
         }
@@ -64,6 +66,9 @@ struct CredentialsView: View {
         .sheet(isPresented: $showAdd) {
             AddCredentialSheet(repo: repo)
         }
+        .sheet(item: $credentialToEdit) { credential in
+            AddCredentialSheet(repo: repo, credential: credential)
+        }
         .errorAlert($errorMessage)
         .snackbar($snackbar)
     }
@@ -74,6 +79,7 @@ private struct CredentialRow: View {
     let credential: Credential
     let onError: (String) -> Void
     let onNotify: (SeedSnackbarMessage) -> Void
+    let onEdit: () -> Void
     let onDelete: () -> Void
     @Environment(\.modelContext) private var context
     @State private var passwordText = ""
@@ -139,6 +145,8 @@ private struct CredentialRow: View {
                 .help(credential.urlString ?? "")
             }
             Menu {
+                Button("수정…", systemImage: "pencil", action: onEdit)
+                Divider()
                 Button("삭제", systemImage: "trash", role: .destructive, action: onDelete)
             } label: {
                 Image(systemName: "ellipsis")
@@ -179,20 +187,32 @@ private struct CredentialRow: View {
     }
 }
 
+/// 추가/수정 겸용 — credential이 있으면 수정 모드.
+/// 수정 모드의 비밀번호는 인증 없이 열 수 있게 프리필하지 않고, 입력했을 때만 교체한다.
 private struct AddCredentialSheet: View {
     let repo: Repository
+    let credential: Credential?
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
-    @State private var label = ""
-    @State private var username = ""
+    @State private var label: String
+    @State private var username: String
     @State private var password = ""
-    @State private var urlString = ""
-    @State private var note = ""
+    @State private var urlString: String
+    @State private var note: String
     @State private var errorMessage: String?
+
+    init(repo: Repository, credential: Credential? = nil) {
+        self.repo = repo
+        self.credential = credential
+        _label = State(initialValue: credential?.label ?? "")
+        _username = State(initialValue: credential?.username ?? "")
+        _urlString = State(initialValue: credential?.urlString ?? "")
+        _note = State(initialValue: credential?.note ?? "")
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: SeedSpacing.x5) {
-            Text("새 계정 — \(repo.name)")
+            Text(credential == nil ? "새 계정 — \(repo.name)" : "계정 수정 — \(label)")
                 .font(SeedTypography.title)
                 .foregroundStyle(SeedColor.fgNeutral)
             SeedField("이름") {
@@ -203,7 +223,9 @@ private struct AddCredentialSheet: View {
                     .fontDesign(.monospaced)
                     .autocorrectionDisabled()
             }
-            SeedField("비밀번호", description: "Keychain에 저장됩니다") {
+            SeedField("비밀번호", description: credential == nil
+                      ? "Keychain에 저장됩니다"
+                      : "변경할 때만 입력 — 비워두면 기존 비밀번호 유지") {
                 SeedTextField("", text: $password, secure: true)
             }
             SeedField("주소 (선택)", description: "웹 URL 또는 앱 스키마") {
@@ -222,7 +244,7 @@ private struct AddCredentialSheet: View {
                 Button("취소") { dismiss() }
                     .buttonStyle(.seed(.neutralWeak, size: .small))
                     .keyboardShortcut(.cancelAction)
-                Button("추가", action: add)
+                Button(credential == nil ? "추가" : "저장", action: save)
                     .buttonStyle(.seed(.brandSolid, size: .small))
                     .keyboardShortcut(.defaultAction)
                     .disabled(label.isEmpty)
@@ -232,17 +254,31 @@ private struct AddCredentialSheet: View {
         .frame(width: 420)
     }
 
-    private func add() {
+    private func save() {
         do {
-            try CredentialService.create(
-                label: label.trimmingCharacters(in: .whitespaces),
-                username: username.trimmingCharacters(in: .whitespaces),
-                password: password,
-                urlString: urlString.trimmingCharacters(in: .whitespaces),
-                note: note,
-                repository: repo,
-                context: context
-            )
+            if let credential {
+                try CredentialService.update(
+                    credential,
+                    label: label.trimmingCharacters(in: .whitespaces),
+                    username: username.trimmingCharacters(in: .whitespaces),
+                    urlString: urlString.trimmingCharacters(in: .whitespaces),
+                    note: note,
+                    context: context
+                )
+                if !password.isEmpty {
+                    try CredentialService.updatePassword(credential, to: password, context: context)
+                }
+            } else {
+                try CredentialService.create(
+                    label: label.trimmingCharacters(in: .whitespaces),
+                    username: username.trimmingCharacters(in: .whitespaces),
+                    password: password,
+                    urlString: urlString.trimmingCharacters(in: .whitespaces),
+                    note: note,
+                    repository: repo,
+                    context: context
+                )
+            }
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
