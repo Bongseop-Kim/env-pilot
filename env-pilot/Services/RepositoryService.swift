@@ -54,10 +54,6 @@ enum RepositoryService {
         repo.workspace = workspace
         context.insert(repo)
 
-        let rootTarget = Target.makeWithDefaults(relativePath: ".")
-        rootTarget.repository = repo
-        context.insert(rootTarget)
-
         try context.save()
         return repo
     }

@@ -7,7 +7,7 @@ import SwiftData
 enum GitSafetyService {
 
     struct Report: Identifiable {
-        let targetPath: String
+        let targetPath: String           // 실제 env 파일의 Repository 상대 경로
         let outputRelativePath: String   // repo 루트 기준, 예: "apps/shop/.env.local"
         let outputExists: Bool
         let isIgnored: Bool
@@ -28,7 +28,7 @@ enum GitSafetyService {
         let rootPatterns = gitignorePatterns(at: rootURL)
 
         return (repo.targets ?? [])
-            .sorted { $0.relativePath < $1.relativePath }
+            .sorted { $0.envFilePath < $1.envFilePath }
             .map { target in
                 let isRoot = target.relativePath == "."
                 let dir = isRoot ? rootURL : rootURL.appendingPathComponent(target.relativePath)
@@ -54,7 +54,7 @@ enum GitSafetyService {
                     permissionsOK = perms.intValue == 0o600
                 }
 
-                return Report(targetPath: target.relativePath, outputRelativePath: relativePath,
+                return Report(targetPath: target.envFilePath, outputRelativePath: relativePath,
                               outputExists: exists, isIgnored: ignored, isTracked: tracked,
                               permissionsOK: permissionsOK)
             }
@@ -170,6 +170,94 @@ enum GitSafetyService {
               let stripped = removingHookBlock(from: content) else { return }
         try stripped.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    // MARK: - AI 에이전트 노출 검사 (1Password zero-exposure 모델 참고)
+    // Claude Code는 permissions.deny로 강제 차단, 그 외 에이전트(Codex·Cursor·Gemini 등)는
+    // 공통 규약 AGENTS.md의 지시 블록으로 커버.
+
+    /// .claude 설정에 .env 읽기 차단(deny) 규칙이 있는지. .claude 디렉토리가 없으면 nil(해당 없음).
+    static func claudeEnvDenyStatus(rootURL: URL) -> Bool? {
+        let hasAccess = rootURL.startAccessingSecurityScopedResource()
+        defer { if hasAccess { rootURL.stopAccessingSecurityScopedResource() } }
+        let claudeDir = rootURL.appendingPathComponent(".claude")
+        guard FileManager.default.fileExists(atPath: claudeDir.path) else { return nil }
+        for name in ["settings.json", "settings.local.json"] {
+            if let data = try? Data(contentsOf: claudeDir.appendingPathComponent(name)),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               hasEnvDenyRule(json) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// permissions.deny 안에 .env를 언급하는 Read 차단 규칙이 있는지.
+    static func hasEnvDenyRule(_ json: [String: Any]) -> Bool {
+        let deny = (json["permissions"] as? [String: Any])?["deny"] as? [String] ?? []
+        return deny.contains { $0.hasPrefix("Read(") && $0.contains(".env") }
+    }
+
+    /// permissions.deny에 출력 파일명별 Read 차단 규칙 병합 (멱등). 나머지 설정은 보존.
+    static func insertingClaudeDenyRules(into json: [String: Any], fileNames: [String]) -> [String: Any] {
+        var json = json
+        var permissions = json["permissions"] as? [String: Any] ?? [:]
+        var deny = permissions["deny"] as? [String] ?? []
+        for name in Set(fileNames).sorted() {
+            let rule = "Read(**/\(name))"
+            if !deny.contains(rule) { deny.append(rule) }
+        }
+        permissions["deny"] = deny
+        json["permissions"] = permissions
+        return json
+    }
+
+    /// .claude/settings.local.json에 차단 규칙 기록 (개인 설정 — 팀 공유 settings.json은 건드리지 않음).
+    static func addClaudeEnvDenyRules(fileNames: [String], rootURL: URL) throws {
+        let hasAccess = rootURL.startAccessingSecurityScopedResource()
+        defer { if hasAccess { rootURL.stopAccessingSecurityScopedResource() } }
+        let url = rootURL.appendingPathComponent(".claude/settings.local.json")
+        let existing = (try? JSONSerialization.jsonObject(with: Data(contentsOf: url))) as? [String: Any] ?? [:]
+        let merged = insertingClaudeDenyRules(into: existing, fileNames: fileNames)
+        let data = try JSONSerialization.data(withJSONObject: merged, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: url, options: .atomic)
+    }
+
+    // MARK: - AGENTS.md 공통 규칙 (Claude 외 모든 에이전트)
+
+    static let agentsBeginMarker = "<!-- envide-guard begin -->"
+    static let agentsEndMarker = "<!-- envide-guard end -->"
+
+    /// 에이전트가 가장 잘 따르도록 영어로 작성 — AGENTS.md는 AI가 읽는 파일.
+    static let agentsRuleBlock = """
+        \(agentsBeginMarker)
+        ## Environment files — do not read
+
+        Never read, print, copy, or transmit the contents of `.env` / `.env.*` files \
+        (except `*.example`) — they contain secrets. Refer to `.env.example` for key names.
+        \(agentsEndMarker)
+        """
+
+    /// AGENTS.md에 .env 읽기 금지 블록이 있는지. 파일이 없으면 false(추가 가능).
+    static func agentsMdEnvRuleStatus(rootURL: URL) -> Bool {
+        let hasAccess = rootURL.startAccessingSecurityScopedResource()
+        defer { if hasAccess { rootURL.stopAccessingSecurityScopedResource() } }
+        let content = try? String(contentsOf: rootURL.appendingPathComponent("AGENTS.md"), encoding: .utf8)
+        return content?.contains(agentsBeginMarker) ?? false
+    }
+
+    /// AGENTS.md 끝에 규칙 블록 append (파일 없으면 생성, 이미 있으면 no-op — 멱등).
+    static func addAgentsMdEnvRule(rootURL: URL) throws {
+        let hasAccess = rootURL.startAccessingSecurityScopedResource()
+        defer { if hasAccess { rootURL.stopAccessingSecurityScopedResource() } }
+        let url = rootURL.appendingPathComponent("AGENTS.md")
+        var content = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        guard !content.contains(agentsBeginMarker) else { return }
+        if !content.isEmpty {
+            if !content.hasSuffix("\n") { content += "\n" }
+            content += "\n"
+        }
+        try (content + agentsRuleBlock + "\n").write(to: url, atomically: true, encoding: .utf8)
     }
 
     // MARK: - 간이 gitignore 매칭

@@ -49,6 +49,18 @@ struct VariableChecks {
         try VariableService.setSecret(v, false, context: ctx)
         assert(v.value == "postgres://prod", "Secret 해제 시 SwiftData 복귀")
 
+        // 키 이름 변경 — Secret은 Keychain 계정이 키에 묶여 있어 값 이동까지 확인
+        try VariableService.setSecret(v, true, context: ctx)
+        try VariableService.rename(v, to: "DB_URL", context: ctx)
+        assert(v.key == "DB_URL", "키 이름 변경")
+        assert(VariableService.value(of: v) == "postgres://prod", "rename 후 Keychain 값 유지")
+        assert((try? VariableService.rename(v, to: "1BAD", context: ctx)) == nil, "rename 잘못된 키 거부")
+        let other = try VariableService.create(key: "OTHER", value: "x",
+                                               environmentName: "Local", target: target, context: ctx)
+        assert((try? VariableService.rename(v, to: "OTHER", context: ctx)) == nil, "rename 중복 키 거부")
+        try VariableService.delete(other, context: ctx)
+        try VariableService.setSecret(v, false, context: ctx)
+
         // 삭제
         try VariableService.delete(v, context: ctx)
         let remaining = try ctx.fetch(FetchDescriptor<Variable>())

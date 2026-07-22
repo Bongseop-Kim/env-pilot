@@ -2,42 +2,23 @@ import SwiftUI
 import SwiftData
 import AppKit
 
-/// 메뉴바 빠른 기능 (PRD §4.4) — Environment 전환, Health 요약, Generate, Scan.
+/// 메뉴바 빠른 기능 — Repository Health와 변경 확인.
 struct MenuBarView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.openWindow) private var openWindow
-    @Query private var workspaces: [Workspace]
     @Query(sort: \Repository.createdAt) private var repositories: [Repository]
-    @AppStorage("selectedEnvironment") private var selectedEnvironment = "Local"
-
-    private var environmentNames: [String] {
-        (workspaces.first?.environments ?? [])
-            .sorted { $0.sortOrder < $1.sortOrder }
-            .map(\.name)
-    }
+    @State private var healthByRepo: [String: String] = [:]   // 메뉴 렌더마다 동기 파일 스캔 방지 캐시
 
     var body: some View {
-        Picker("Environment", selection: $selectedEnvironment) {
-            ForEach(environmentNames, id: \.self) { Text($0).tag($0) }
-        }
-        .pickerStyle(.inline)
-
-        Divider()
-
-        // Repository별 Health 요약 (표시 전용)
+        // Repository별 Health
         ForEach(repositories) { repo in
-            Text("\(healthSymbol(repo)) \(repo.name)")
+            Text("\(healthByRepo[repo.uuid] ?? "…") \(repo.name)")
         }
+        .onAppear { refreshHealth() }
 
         Divider()
 
-        Menu("Generate — \(selectedEnvironment)") {
-            ForEach(repositories) { repo in
-                Button(repo.name) { generate(repo) }
-                    .disabled(RepositoryService.resolveBookmark(repo) == nil)
-            }
-        }
-        Button("Scan Now") { scanAll() }
+        Button("변경 확인") { scanAll() }
 
         Divider()
 
@@ -48,26 +29,24 @@ struct MenuBarView: View {
         Button("종료") { NSApp.terminate(nil) }
     }
 
-    private func healthSymbol(_ repo: Repository) -> String {
-        guard let rootURL = RepositoryService.resolveBookmark(repo) else { return "⚠️" }
-        let items = HealthService.check(repo: repo, rootURL: rootURL, environmentNames: environmentNames)
-        return HealthService.overall(items).symbol
-    }
-
-    /// 메뉴바 Generate는 확인 없이 즉시 실행 — 앱 데이터가 .env의 소스라는 전제 (§16).
-    private func generate(_ repo: Repository) {
-        guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
-        let plans = GenerateService.makePlans(repo: repo, rootURL: rootURL, environmentName: selectedEnvironment)
-        let errors = GenerateService.execute(plans, rootURL: rootURL)
-        if errors.isEmpty {
-            GenerateService.recordOutputHashes(plans: plans, repo: repo)  // §3.18 drift 기준점
-            try? context.save()
+    private func refreshHealth() {
+        Task {
+            for repo in repositories {
+                guard let rootURL = RepositoryService.resolveBookmark(repo) else {
+                    healthByRepo[repo.uuid] = "⚠️"
+                    continue
+                }
+                let items = HealthService.check(repo: repo, rootURL: rootURL)
+                healthByRepo[repo.uuid] = HealthService.overall(items).symbol
+                await Task.yield()   // repo가 많아도 메뉴 UI가 멈추지 않게
+            }
         }
     }
 
     private func scanAll() {
         for repo in repositories {
             guard let rootURL = RepositoryService.resolveBookmark(repo) else { continue }
+            _ = LocalSyncService.reconcile(repo: repo, rootURL: rootURL, context: context)
             _ = ExampleDiffService.scan(repo: repo, rootURL: rootURL, context: context)
         }
     }

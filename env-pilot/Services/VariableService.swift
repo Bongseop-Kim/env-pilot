@@ -41,7 +41,12 @@ enum VariableService {
 
     /// Secret이면 Keychain에서, 아니면 SwiftData에서 실값을 읽는다.
     static func value(of variable: Variable) -> String {
-        variable.isSecret ? (SecretStore.read(account: account(for: variable)) ?? "") : variable.value
+        valueIfAvailable(of: variable) ?? ""
+    }
+
+    /// 자동 파일 쓰기는 아직 동기화되지 않은 Secret을 빈 값과 구분해야 한다.
+    static func valueIfAvailable(of variable: Variable) -> String? {
+        variable.isSecret ? SecretStore.read(account: account(for: variable)) : variable.value
     }
 
     static func updateValue(_ variable: Variable, to newValue: String, context: ModelContext) throws {
@@ -54,6 +59,27 @@ enum VariableService {
         }
         variable.updatedAt = Date()
         record("updated", variable, oldValue: old, context: context)
+        try context.save()
+    }
+
+    /// 키 이름 변경 — Secret이면 Keychain 계정명이 키에 묶여 있어 값을 옮겨 저장한다.
+    static func rename(_ variable: Variable, to newKey: String, context: ModelContext) throws {
+        guard variable.key != newKey else { return }
+        guard EnvParser.isValidKey(newKey) else { throw VariableError.invalidKey(newKey) }
+        let duplicate = (variable.target?.variables ?? []).contains {
+            $0.key == newKey && $0.environmentName == variable.environmentName
+        }
+        guard !duplicate else { throw VariableError.duplicateKey(newKey) }
+        if variable.isSecret {
+            let current = value(of: variable)
+            SecretStore.delete(account: account(for: variable))
+            variable.key = newKey
+            try SecretStore.save(current, account: account(for: variable))
+        } else {
+            variable.key = newKey
+        }
+        variable.updatedAt = Date()
+        record("renamed", variable, oldValue: nil, context: context)
         try context.save()
     }
 
@@ -74,17 +100,18 @@ enum VariableService {
             SecretStore.delete(account: account(for: variable))
         }
         variable.isSecret = isSecret
+        variable.updatedAt = Date()
         try context.save()
     }
 
-    static func delete(_ variable: Variable, context: ModelContext) throws {
+    static func delete(_ variable: Variable, context: ModelContext, saveChanges: Bool = true) throws {
         let old = value(of: variable)
         if variable.isSecret {
             SecretStore.delete(account: account(for: variable))
         }
         record("deleted", variable, oldValue: old, context: context)
         context.delete(variable)
-        try context.save()
+        if saveChanges { try context.save() }
     }
 
     private static func account(for variable: Variable) -> String {
@@ -106,7 +133,7 @@ enum VariableService {
             key: variable.key,
             environmentName: variable.environmentName,
             repositoryName: variable.target?.repository?.name ?? "",
-            targetPath: variable.target?.relativePath ?? "",
+            targetPath: variable.target?.envFilePath ?? "",
             oldValueHash: hash
         ))
     }

@@ -9,6 +9,7 @@ struct TargetScanSheet: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var selected: Set<String>
+    @State private var saveError: String?
     private let existingPaths: Set<String>
 
     init(repo: Repository, candidates: [MonorepoScanner.Candidate]) {
@@ -22,7 +23,7 @@ struct TargetScanSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Monorepo Target 발견")
-                .font(.headline)
+                .font(SeedTypography.title)
                 .padding()
 
             List(candidates, id: \.relativePath) { candidate in
@@ -34,28 +35,33 @@ struct TargetScanSheet: View {
                         Spacer()
                         if candidate.hasExample {
                             Label(".env.example", systemImage: "doc.text")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .font(SeedTypography.body)
+                                .foregroundStyle(SeedColor.fgNeutralMuted)
                         }
                         if isExisting {
-                            Text("추가됨").font(.caption).foregroundStyle(.secondary)
+                            Text("추가됨").font(SeedTypography.body).foregroundStyle(SeedColor.fgNeutralMuted)
                         }
                     }
                 }
                 .disabled(isExisting)
+                .toggleStyle(.seed)
+                .seedListRow()
             }
 
             HStack {
                 Spacer()
                 Button("취소") { dismiss() }
+                    .buttonStyle(.seed(.neutralWeak, size: .small))
                     .keyboardShortcut(.cancelAction)
                 Button("Target 추가 (\(selected.count))") { add() }
+                    .buttonStyle(.seed(.brandSolid, size: .small))
                     .keyboardShortcut(.defaultAction)
                     .disabled(selected.isEmpty)
             }
             .padding()
         }
         .frame(width: 440, height: 340)
+        .errorAlert($saveError, title: "저장 실패")
     }
 
     private func binding(for path: String) -> Binding<Bool> {
@@ -74,7 +80,11 @@ struct TargetScanSheet: View {
             target.repository = repo
             context.insert(target)
         }
-        try? context.save()
-        dismiss()
+        do {
+            try context.save()
+            dismiss()
+        } catch {
+            saveError = error.localizedDescription
+        }
     }
 }

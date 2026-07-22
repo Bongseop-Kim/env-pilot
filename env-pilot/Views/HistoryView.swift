@@ -1,18 +1,18 @@
 import SwiftUI
 import SwiftData
 
-/// 변경 이력 (PRD §3.10) — 날짜별 그룹, Repository/Environment 필터, 최근 1000건 보존.
+/// 변경 이력 (PRD §3.10) — 날짜별 그룹, Repository/파일 필터, 최근 1000건 보존.
 struct HistoryView: View {
     @Query(sort: \HistoryEntry.timestamp, order: .reverse) private var entries: [HistoryEntry]
     @Environment(\.modelContext) private var context
     @State private var repositoryFilter = "전체"
-    @State private var environmentFilter = "전체"
+    @State private var fileFilter = "전체"
     @State private var showDeleteAllConfirm = false
 
     private var filtered: [HistoryEntry] {
         entries.filter {
             (repositoryFilter == "전체" || $0.repositoryName == repositoryFilter)
-                && (environmentFilter == "전체" || $0.environmentName == environmentFilter)
+                && (fileFilter == "전체" || $0.targetPath == fileFilter)
         }
     }
 
@@ -49,13 +49,15 @@ struct HistoryView: View {
                 ForEach(Set(entries.map(\.repositoryName)).sorted(), id: \.self) { Text($0).tag($0) }
             }
             .help("Repository별 이력 필터")
-            Picker("Environment", selection: $environmentFilter) {
-                Text("전체 Environment").tag("전체")
-                ForEach(Set(entries.map(\.environmentName)).sorted(), id: \.self) { Text($0).tag($0) }
+            Picker("파일", selection: $fileFilter) {
+                Text("전체 파일").tag("전체")
+                ForEach(Set(entries.map(\.targetPath)).filter { !$0.isEmpty }.sorted(), id: \.self) {
+                    Text($0).tag($0)
+                }
             }
-            .help("Environment별 이력 필터")
+            .help("env 파일별 이력 필터")
             Button("이력 삭제", systemImage: "trash") { showDeleteAllConfirm = true }
-                .help(repositoryFilter == "전체" && environmentFilter == "전체"
+                .help(repositoryFilter == "전체" && fileFilter == "전체"
                       ? "전체 이력 삭제" : "필터에 표시된 이력 삭제")
                 .disabled(filtered.isEmpty)
         }
@@ -86,25 +88,25 @@ struct HistoryView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(entry.key).fontDesign(.monospaced).fontWeight(.medium)
-                    Text(actionLabel(entry.action)).foregroundStyle(.secondary)
+                    Text(actionLabel(entry.action)).foregroundStyle(SeedColor.fgNeutralMuted)
                 }
-                Text("\(entry.repositoryName) · \(entry.targetPath) · \(entry.environmentName)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text("\(entry.repositoryName) · \(entry.targetPath)")
+                    .font(SeedTypography.body)
+                    .foregroundStyle(SeedColor.fgNeutralMuted)
             }
             Spacer()
             Text(entry.timestamp, style: .time)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(SeedTypography.body)
+                .foregroundStyle(SeedColor.fgNeutralMuted)
         }
-        .padding(.vertical, 2)
+        .seedListRow()
     }
 
     private func icon(_ action: String) -> (String, Color) {
         switch action {
-        case "created": ("plus.circle.fill", .green)
-        case "deleted": ("minus.circle.fill", .red)
-        default: ("pencil.circle.fill", .orange)
+        case "created": ("plus.circle.fill", SeedColor.fgPositive)
+        case "deleted": ("minus.circle.fill", SeedColor.fgCritical)
+        default: ("pencil.circle.fill", SeedColor.fgBrand)
         }
     }
 

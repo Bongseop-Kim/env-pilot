@@ -59,36 +59,32 @@ struct env_pilotApp: App {
         }
     }
 
-    /// 첫 실행 시 기본 Workspace + Environment 4종 생성.
+    /// 첫 실행 시 기본 Workspace 생성. Environment는 Repository 등록 시 기본 4종을 심는다.
     static func bootstrap(_ context: ModelContext) {
         let existing = (try? context.fetchCount(FetchDescriptor<Workspace>())) ?? 0
         guard existing == 0 else { return }
-
-        let workspace = Workspace()
-        context.insert(workspace)
-        for (i, name) in Workspace.defaultEnvironmentNames.enumerated() {
-            let env = EnvEnvironment(name: name, sortOrder: i)
-            env.workspace = workspace
-            context.insert(env)
-        }
+        context.insert(Workspace())
         try? context.save()
     }
 
     /// §3.13: 새 Mac의 bootstrap과 CloudKit 동기화가 만나면 Workspace가 중복된다.
-    /// 가장 오래된 것 하나로 병합하고 Environment도 이름 기준으로 중복 제거. 멱등 — 앱 활성화 시마다 호출.
+    /// 가장 오래된 것 하나로 병합하고 Repository별 Environment를 이름 기준으로 중복 제거. 멱등 — 앱 활성화 시마다 호출.
     static func dedupeAfterSync(_ context: ModelContext) {
-        guard let workspaces = try? context.fetch(FetchDescriptor<Workspace>(
-            sortBy: [SortDescriptor(\.createdAt)])), workspaces.count > 1 else { return }
-
-        let keeper = workspaces[0]
-        for duplicate in workspaces.dropFirst() {
-            for repo in duplicate.repositories ?? [] { repo.workspace = keeper }
-            for env in duplicate.environments ?? [] { env.workspace = keeper }
-            context.delete(duplicate)
+        if let workspaces = try? context.fetch(FetchDescriptor<Workspace>(
+            sortBy: [SortDescriptor(\.createdAt)])), workspaces.count > 1 {
+            let keeper = workspaces[0]
+            for duplicate in workspaces.dropFirst() {
+                for repo in duplicate.repositories ?? [] { repo.workspace = keeper }
+                context.delete(duplicate)
+            }
         }
-        var seen = Set<String>()
-        for env in (keeper.environments ?? []).sorted(by: { $0.sortOrder < $1.sortOrder }) {
-            if seen.insert(env.name).inserted == false { context.delete(env) }
+        if let repositories = try? context.fetch(FetchDescriptor<Repository>()) {
+            for repo in repositories {
+                var seen = Set<String>()
+                for env in (repo.environments ?? []).sorted(by: { $0.sortOrder < $1.sortOrder }) {
+                    if seen.insert(env.name).inserted == false { context.delete(env) }
+                }
+            }
         }
         try? context.save()
     }

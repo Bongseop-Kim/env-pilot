@@ -1,22 +1,29 @@
 import SwiftUI
 import SwiftData
 
-/// .env 파일 가져오기 확인 시트 (PRD §3.12) — 충돌 키는 키별 선택.
+/// 로컬 .env 변경 검토 — 충돌 키는 키별 선택.
 struct ImportSheet: View {
     let items: [ImportService.Item]
     let warnings: [String]
     let target: Target
-    let environmentName: String
+    let newKeysAreSecret: Bool
+    let missingVariables: [Variable]
+    let onImported: () -> Void
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var useFileValue: Set<String>
+    @State private var deleteKeys: Set<String> = []
     @State private var errorMessage: String?
 
-    init(items: [ImportService.Item], warnings: [String], target: Target, environmentName: String) {
+    init(items: [ImportService.Item], warnings: [String], target: Target,
+         newKeysAreSecret: Bool = false, missingVariables: [Variable] = [],
+         onImported: @escaping () -> Void = {}) {
         self.items = items
         self.warnings = warnings
         self.target = target
-        self.environmentName = environmentName
+        self.newKeysAreSecret = newKeysAreSecret
+        self.missingVariables = missingVariables
+        self.onImported = onImported
         // 기본: 파일 값 사용 (§3.12)
         _useFileValue = State(initialValue: Set(items.compactMap {
             if case .conflict = $0.kind { $0.key } else { nil }
@@ -30,32 +37,50 @@ struct ImportSheet: View {
             case .conflict: useFileValue.contains($0.key)
             case .same: false
             }
-        }.count
+        }.count + deleteKeys.count
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Import — \(environmentName)")
-                .font(.headline)
+            Text("로컬 변경 검토 — \(target.envFilePath)")
+                .font(SeedTypography.title)
                 .padding()
 
-            List(items) { item in
-                row(item)
+            List {
+                ForEach(items) { item in row(item) }
+                if !missingVariables.isEmpty {
+                    Section("로컬 파일에서 삭제됨") {
+                        ForEach(missingVariables) { variable in
+                            HStack {
+                                Image(systemName: "minus.circle.fill").foregroundStyle(SeedColor.fgCritical)
+                                Text(variable.key).fontDesign(.monospaced)
+                                Spacer()
+                                SeedSegmentedControl(selection: deleteBinding(variable.key),
+                                                     items: [(true, "로컬 삭제 반영"),
+                                                             (false, "기존 값 유지")])
+                                    .fixedSize()
+                            }
+                        }
+                    }
+                }
             }
 
             if !warnings.isEmpty {
-                Text("경고: \(warnings.joined(separator: " / "))")
-                    .font(.caption).foregroundStyle(.orange).padding(.horizontal)
+                SeedCallout(warnings.joined(separator: " / "), tone: .warning)
+                    .padding(.horizontal)
             }
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red).padding(.horizontal)
+                SeedCallout(errorMessage, tone: .critical)
+                    .padding(.horizontal)
             }
 
             HStack {
                 Spacer()
                 Button("취소") { dismiss() }
+                    .buttonStyle(.seed(.neutralWeak, size: .small))
                     .keyboardShortcut(.cancelAction)
-                Button("가져오기 (\(applicableCount))") { run() }
+                Button("적용 (\(applicableCount))") { run() }
+                    .buttonStyle(.seed(.brandSolid, size: .small))
                     .keyboardShortcut(.defaultAction)
                     .disabled(applicableCount == 0)
             }
@@ -68,37 +93,35 @@ struct ImportSheet: View {
         switch item.kind {
         case .add:
             HStack {
-                Image(systemName: "plus.circle.fill").foregroundStyle(.green)
+                Image(systemName: "plus.circle.fill").foregroundStyle(SeedColor.fgPositive)
                 Text(item.key).fontDesign(.monospaced)
                 Spacer()
-                Text(item.newValue).foregroundStyle(.secondary).fontDesign(.monospaced)
+                Text(displayValue(item.newValue, key: item.key))
+                    .foregroundStyle(SeedColor.fgNeutralMuted).fontDesign(.monospaced)
                     .lineLimit(1).truncationMode(.middle)
             }
         case .same:
             HStack {
-                Image(systemName: "equal.circle").foregroundStyle(.secondary)
-                Text(item.key).fontDesign(.monospaced).foregroundStyle(.secondary)
+                Image(systemName: "equal.circle").foregroundStyle(SeedColor.fgNeutralMuted)
+                Text(item.key).fontDesign(.monospaced).foregroundStyle(SeedColor.fgNeutralMuted)
                 Spacer()
-                Text("동일 — 스킵").font(.caption).foregroundStyle(.secondary)
+                Text("동일 — 스킵").font(SeedTypography.body).foregroundStyle(SeedColor.fgNeutralMuted)
             }
         case .conflict(let existing):
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Image(systemName: "arrow.triangle.branch").foregroundStyle(.orange)
+                    Image(systemName: "arrow.triangle.branch").foregroundStyle(SeedColor.fgBrand)
                     Text(item.key).fontDesign(.monospaced).fontWeight(.medium)
                     Spacer()
-                    Picker("", selection: choiceBinding(item.key)) {
-                        Text("파일 값 사용").tag(true)
-                        Text("기존 값 유지").tag(false)
-                    }
-                    .pickerStyle(.segmented)
-                    .fixedSize()
+                    SeedSegmentedControl(selection: choiceBinding(item.key),
+                                         items: [(true, "파일 값 사용"), (false, "기존 값 유지")])
+                        .fixedSize()
                 }
                 Group {
-                    Text("파일: \(item.newValue)")
-                    Text("기존: \(existing)")
+                    Text("파일: \(displayValue(item.newValue, key: item.key))")
+                    Text("기존: \(displayValue(existing, key: item.key))")
                 }
-                .font(.caption).fontDesign(.monospaced).foregroundStyle(.secondary)
+                .font(SeedTypography.body).fontDesign(.monospaced).foregroundStyle(SeedColor.fgNeutralMuted)
                 .lineLimit(1).truncationMode(.middle)
                 .padding(.leading, 24)
             }
@@ -114,10 +137,31 @@ struct ImportSheet: View {
         )
     }
 
+    private func displayValue(_ value: String, key: String) -> String {
+        let existing = (target.variables ?? []).first {
+            $0.key == key && $0.environmentName == target.envFilePath
+        }
+        return existing?.isSecret == true || (existing == nil && newKeysAreSecret) ? "••••••••" : value
+    }
+
+    private func deleteBinding(_ key: String) -> Binding<Bool> {
+        Binding(
+            get: { deleteKeys.contains(key) },
+            set: { shouldDelete in
+                if shouldDelete { deleteKeys.insert(key) } else { deleteKeys.remove(key) }
+            }
+        )
+    }
+
     private func run() {
         do {
             try ImportService.execute(items: items, useFileValue: useFileValue,
-                                      target: target, environmentName: environmentName, context: context)
+                                      target: target, environmentName: target.envFilePath,
+                                      newKeysAreSecret: newKeysAreSecret, context: context)
+            for variable in missingVariables where deleteKeys.contains(variable.key) {
+                try VariableService.delete(variable, context: context)
+            }
+            onImported()
             dismiss()
         } catch {
             errorMessage = error.localizedDescription

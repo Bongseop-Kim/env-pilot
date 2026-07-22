@@ -17,7 +17,7 @@ struct BundleImportSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Import — .envide 번들")
-                .font(.headline)
+                .font(SeedTypography.title)
                 .padding()
 
             if payload != nil {
@@ -27,19 +27,23 @@ struct BundleImportSheet: View {
             }
 
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red).font(.caption).padding(.horizontal)
+                SeedCallout(errorMessage, tone: .critical)
+                    .padding(.horizontal)
             }
 
             HStack {
                 Spacer()
                 Button("취소") { dismiss() }
+                    .buttonStyle(.seed(.neutralWeak, size: .small))
                     .keyboardShortcut(.cancelAction)
                 if payload != nil {
                     Button("가져오기 (\(applicableCount))") { run() }
+                        .buttonStyle(.seed(.brandSolid, size: .small))
                         .keyboardShortcut(.defaultAction)
                         .disabled(applicableCount == 0 && items.isEmpty)
                 } else if needsPassphrase {
                     Button("열기") { decrypt() }
+                        .buttonStyle(.seed(.brandSolid, size: .small))
                         .keyboardShortcut(.defaultAction)
                         .disabled(passphrase.isEmpty)
                 }
@@ -53,7 +57,7 @@ struct BundleImportSheet: View {
     private var passphrasePrompt: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("암호화된 번들입니다. 패스프레이즈를 입력하세요.")
-            SecureField("패스프레이즈", text: $passphrase)
+            SeedTextField("패스프레이즈", text: $passphrase, secure: true)
                 .onSubmit(decrypt)
         }
         .padding(.horizontal)
@@ -78,8 +82,8 @@ struct BundleImportSheet: View {
     private var preview: some View {
         List {
             if items.isEmpty {
-                Text("변경할 항목이 없습니다 — 구조(Repository/Target/Environment)만 병합됩니다.")
-                    .foregroundStyle(.secondary)
+                Text("변경할 항목이 없습니다 — Repository와 env 파일 구조만 병합됩니다.")
+                    .foregroundStyle(SeedColor.fgNeutralMuted)
             }
             ForEach(grouped, id: \.group) { section in
                 Section(section.group) {
@@ -95,37 +99,34 @@ struct BundleImportSheet: View {
         switch item.kind {
         case .add:
             HStack {
-                Image(systemName: "plus.circle.fill").foregroundStyle(.green)
+                Image(systemName: "plus.circle.fill").foregroundStyle(SeedColor.fgPositive)
                 Text(item.key).fontDesign(.monospaced)
                 Spacer()
-                Text(item.newValue).foregroundStyle(.secondary).fontDesign(.monospaced)
+                Text(item.newValue).foregroundStyle(SeedColor.fgNeutralMuted).fontDesign(.monospaced)
                     .lineLimit(1).truncationMode(.middle)
             }
         case .same:
             HStack {
-                Image(systemName: "equal.circle").foregroundStyle(.secondary)
-                Text(item.key).fontDesign(.monospaced).foregroundStyle(.secondary)
+                Image(systemName: "equal.circle").foregroundStyle(SeedColor.fgNeutralMuted)
+                Text(item.key).fontDesign(.monospaced).foregroundStyle(SeedColor.fgNeutralMuted)
                 Spacer()
-                Text("동일 — 스킵").font(.caption).foregroundStyle(.secondary)
+                Text("동일 — 스킵").font(SeedTypography.body).foregroundStyle(SeedColor.fgNeutralMuted)
             }
         case .conflict(let existing):
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Image(systemName: "arrow.triangle.branch").foregroundStyle(.orange)
+                    Image(systemName: "arrow.triangle.branch").foregroundStyle(SeedColor.fgBrand)
                     Text(item.key).fontDesign(.monospaced).fontWeight(.medium)
                     Spacer()
-                    Picker("", selection: choiceBinding(item.id)) {
-                        Text("파일 값 사용").tag(true)
-                        Text("기존 값 유지").tag(false)
-                    }
-                    .pickerStyle(.segmented)
-                    .fixedSize()
+                    SeedSegmentedControl(selection: choiceBinding(item.id),
+                                         items: [(true, "파일 값 사용"), (false, "기존 값 유지")])
+                        .fixedSize()
                 }
                 Group {
                     Text("파일: \(item.newValue)")
                     Text("기존: \(existing)")
                 }
-                .font(.caption).fontDesign(.monospaced).foregroundStyle(.secondary)
+                .font(SeedTypography.body).fontDesign(.monospaced).foregroundStyle(SeedColor.fgNeutralMuted)
                 .lineLimit(1).truncationMode(.middle)
                 .padding(.leading, 24)
             }

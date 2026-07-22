@@ -1,23 +1,23 @@
 import SwiftUI
 import SwiftData
-import AppKit
 
-/// 변수 목록/편집 (PRD §3.3) + Import 진입점 (§3.12). (선택된 Target, 선택된 Environment) 기준.
+/// 선택한 실제 env 파일의 변수 목록/편집.
 struct VariablesView: View {
     let target: Target
-    let environmentName: String
     @Binding var pendingAddKey: String?   // Health에서 누락 키 클릭 시 프리필 (§3.8)
     @Environment(\.modelContext) private var context
     @State private var search = ""
     @State private var showAdd = false
     @State private var addSheetKey = ""
-    @State private var importPlan: (items: [ImportService.Item], warnings: [String])?
     @State private var errorMessage: String?
+    @State private var snackbar: SeedSnackbarMessage?
     @State private var pendingExampleContent: String?   // §3.17 덮어쓰기 확인 대기 중인 내용
+    @State private var variablePendingDelete: Variable?
+    @State private var variableToEdit: Variable?
 
     private var variables: [Variable] {
         (target.variables ?? [])
-            .filter { $0.environmentName == environmentName && !$0.isIgnored }
+            .filter { $0.environmentName == target.envFilePath && !$0.isIgnored }
             .filter {
                 search.isEmpty
                     || $0.key.localizedCaseInsensitiveContains(search)
@@ -29,17 +29,11 @@ struct VariablesView: View {
     var body: some View {
         List {
             ForEach(variables) { variable in
-                VariableRow(variable: variable, onError: { errorMessage = $0 })
-                    .contextMenu {
-                        Button(variable.isSecret ? "Secret 해제" : "Secret으로 전환") {
-                            do { try VariableService.setSecret(variable, !variable.isSecret, context: context) }
-                            catch { errorMessage = error.localizedDescription }
-                        }
-                        Button("삭제", role: .destructive) {
-                            do { try VariableService.delete(variable, context: context) }
-                            catch { errorMessage = error.localizedDescription }
-                        }
-                    }
+                VariableRow(variable: variable, onError: { errorMessage = $0 },
+                            onNotify: { snackbar = $0 },
+                            onEdit: { editVariable(variable) },
+                            onToggleSecret: { setSecret(variable, to: !variable.isSecret) },
+                            onDelete: { variablePendingDelete = variable })
             }
         }
         .searchable(text: $search, placement: .toolbar, prompt: "키 또는 설명 검색")
@@ -48,25 +42,40 @@ struct VariablesView: View {
                 ContentUnavailableView(
                     search.isEmpty ? "키가 없습니다" : "검색 결과 없음",
                     systemImage: "key",
-                    description: search.isEmpty ? Text("+ 로 추가하거나 기존 .env를 Import 하세요") : nil
+                    description: search.isEmpty ? Text("+ 버튼으로 변수를 추가하세요") : nil
                 )
             }
         }
         .toolbar {
-            Menu {
+            Button("키 추가", systemImage: "plus") { addSheetKey = ""; showAdd = true }
+                .help("새 변수 추가 (⌘N)")
+                .keyboardShortcut("n", modifiers: .command)
+            Button("Example 생성", systemImage: "doc.badge.gearshape") {
+                generateExample()
+            }
+            .help("Example 생성 — \(target.examplePath)")
+            Menu("전체 복사", systemImage: "doc.on.doc") {
                 ForEach(CopyFormat.allCases, id: \.self) { format in
                     Button(format.rawValue) { copyAs(format) }
                 }
-            } label: {
-                Label("Copy as…", systemImage: "doc.on.clipboard")
             }
-            .help("현재 목록 전체를 dotenv / Shell exports / JSON 포맷으로 복사")
-            Button("Example 생성", systemImage: "doc.badge.gearshape") { generateExample() }
-                .help("현재 변수들로부터 \(target.examplePath) 파일 생성")
-            Button("Import", systemImage: "square.and.arrow.up") { pickImportFile() }
-                .help("기존 .env 파일을 가져와 변수로 등록")
-            Button("키 추가", systemImage: "plus") { addSheetKey = ""; showAdd = true }
-                .help("새 변수 추가")
+            .help("현재 env 파일을 포맷별로 복사")
+        }
+        .confirmationDialog(
+            "\(variablePendingDelete?.key ?? "") 키를 삭제할까요?",
+            isPresented: Binding(presence: $variablePendingDelete), titleVisibility: .visible
+        ) {
+            Button("삭제", role: .destructive) {
+                if let variable = variablePendingDelete {
+                    do { try VariableService.delete(variable, context: context) }
+                    catch { errorMessage = error.localizedDescription }
+                }
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text(variablePendingDelete?.isSecret == true
+                 ? "Keychain의 Secret 값이 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다."
+                 : "이 작업은 되돌릴 수 없습니다.")
         }
         .confirmationDialog("\(target.examplePath)이 이미 있고 내용이 다릅니다. 덮어쓸까요?",
                             isPresented: .constant(pendingExampleContent != nil), titleVisibility: .visible) {
@@ -77,13 +86,10 @@ struct VariablesView: View {
             Button("취소", role: .cancel) { pendingExampleContent = nil }
         }
         .sheet(isPresented: $showAdd) {
-            AddVariableSheet(target: target, environmentName: environmentName, initialKey: addSheetKey)
+            AddVariableSheet(target: target, initialKey: addSheetKey)
         }
-        .sheet(isPresented: Binding(presence: $importPlan)) {
-            if let plan = importPlan {
-                ImportSheet(items: plan.items, warnings: plan.warnings,
-                            target: target, environmentName: environmentName)
-            }
+        .sheet(item: $variableToEdit) { variable in
+            AddVariableSheet(target: target, variable: variable)
         }
         .onChange(of: pendingAddKey, initial: true) {
             if let key = pendingAddKey {
@@ -92,19 +98,45 @@ struct VariablesView: View {
                 pendingAddKey = nil
             }
         }
-        .alert("오류", isPresented: .constant(errorMessage != nil)) {
-            Button("확인") { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
+        .errorAlert($errorMessage)
+        .snackbar($snackbar)
+    }
+
+    /// 수정 시트는 Secret 값을 평문으로 프리필하므로 열기 전에 인증한다.
+    private func editVariable(_ variable: Variable) {
+        Task {
+            if variable.isSecret {
+                guard await BiometricGate.authorize(reason: "\(variable.key) 값을 표시") else { return }
+            }
+            variableToEdit = variable
         }
     }
 
-    /// §3.20 — 현재 Target × Environment 전체를 지정 포맷으로 복사. Secret 포함 시 §3.16 자동 삭제.
+    private func setSecret(_ variable: Variable, to isSecret: Bool) {
+        Task {
+            if !isSecret {
+                guard await BiometricGate.authorize(reason: "\(variable.key) Secret을 해제") else { return }
+            }
+            do { try VariableService.setSecret(variable, isSecret, context: context) }
+            catch { errorMessage = error.localizedDescription }
+        }
+    }
+
+    /// §3.20 — 현재 env 파일 전체를 지정 포맷으로 복사. Secret 포함 시 §3.16 자동 삭제.
     private func copyAs(_ format: CopyFormat) {
         let all = (target.variables ?? [])
-            .filter { $0.environmentName == environmentName && !$0.isIgnored }
-        let values = Dictionary(uniqueKeysWithValues: all.map { ($0.key, VariableService.value(of: $0)) })
-        ClipboardService.copy(format.render(values), clearAfterDelay: all.contains(where: \.isSecret))
+            .filter { $0.environmentName == target.envFilePath && !$0.isIgnored }
+        let hasSecret = all.contains(where: \.isSecret)
+        Task {
+            if hasSecret {
+                guard await BiometricGate.authorize(reason: "Secret이 포함된 목록을 복사") else { return }
+            }
+            let values = Dictionary(uniqueKeysWithValues: all.map { ($0.key, VariableService.value(of: $0)) })
+            ClipboardService.copy(format.render(values), clearAfterDelay: hasSecret)
+            snackbar = SeedSnackbarMessage(
+                hasSecret ? "\(format.rawValue) 복사됨 — 30초 후 클립보드에서 삭제" : "\(format.rawValue) 복사됨",
+                tone: .positive)
+        }
     }
 
     /// §3.17 — example 역생성. 기존 파일과 다르면 덮어쓰기 확인.
@@ -120,7 +152,7 @@ struct VariablesView: View {
         if hasAccess { rootURL.stopAccessingSecurityScopedResource() }
 
         if let existing, existing != content {
-            pendingExampleContent = content   // §3.4와 동일한 덮어쓰기 확인
+            pendingExampleContent = content
         } else {
             writeExample(content)
         }
@@ -136,169 +168,245 @@ struct VariablesView: View {
         }
     }
 
-    /// fileImporter는 조상 뷰(RepositoryDetailView)의 fileImporter와 충돌해 패널이 열리지 않고,
-    /// 숨김 파일인 .env가 목록에 보이지도 않아 NSOpenPanel을 직접 사용한다.
-    private func pickImportFile() {
-        let panel = NSOpenPanel()
-        panel.showsHiddenFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        if let repo = target.repository, let rootURL = RepositoryService.resolveBookmark(repo) {
-            panel.directoryURL = target.relativePath == "."
-                ? rootURL
-                : rootURL.appendingPathComponent(target.relativePath)
-        }
-        panel.begin { response in
-            guard response == .OK, let url = panel.url else { return }
-            importFile(url)
-        }
-    }
-
-    private func importFile(_ url: URL) {
-        let hasAccess = url.startAccessingSecurityScopedResource()
-        defer { if hasAccess { url.stopAccessingSecurityScopedResource() } }
-        guard let content = try? String(contentsOf: url, encoding: .utf8) else {
-            errorMessage = "파일을 읽을 수 없습니다: \(url.lastPathComponent)"
-            return
-        }
-        importPlan = ImportService.plan(content: content, target: target, environmentName: environmentName)
-    }
 }
 
-/// 한 변수의 행: 값 인라인 편집, Secret 마스킹(클릭 시 일시 표시), 복사.
+/// 한 변수의 행: 키 클릭=복사. Secret 값은 클릭=표시(인증) → 클릭=복사, 더블클릭=편집.
+/// 일반 값은 인라인 편집(Enter 또는 포커스 이탈 시 저장). 더보기 메뉴(Secret 전환·삭제).
 private struct VariableRow: View {
     let variable: Variable
     let onError: (String) -> Void
+    let onNotify: (SeedSnackbarMessage) -> Void
+    let onEdit: () -> Void
+    let onToggleSecret: () -> Void
+    let onDelete: () -> Void
     @Environment(\.modelContext) private var context
     @State private var valueText = ""
     @State private var noteText = ""
+    @State private var committedValue = ""   // blur 커밋 시 불필요한 저장 방지용 기준값
+    @State private var committedNote = ""
     @State private var revealed = false
-    @State private var showClipboardNote = false   // §3.16 복사 직후 안내
+    @State private var isEditingValue = false   // Secret은 표시 후 클릭=복사, 더블클릭=편집
+    @State private var savedFlash = false    // 저장 직후 체크마크
+    @FocusState private var focusedField: Field?
+
+    private enum Field { case value, note }
 
     var body: some View {
         HStack(spacing: 12) {
             HStack(spacing: 4) {
                 if variable.isSecret {
-                    Image(systemName: "lock.fill").foregroundStyle(.secondary).font(.caption)
+                    Image(systemName: "lock.fill").foregroundStyle(SeedColor.fgNeutralMuted).font(SeedTypography.body)
                 }
                 Text(variable.key).fontDesign(.monospaced).fontWeight(.medium)
             }
             .frame(width: 220, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                ClipboardService.copy(variable.key, clearAfterDelay: false)
+                onNotify(SeedSnackbarMessage("키 복사됨", tone: .positive))
+            }
+            .help("클릭하여 키 복사 — \(variable.key)")
 
             if variable.isSecret && !revealed {
                 Button("••••••••") { reveal() }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SeedColor.fgNeutralMuted)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .help("클릭하여 표시")
+                    .help("클릭하여 표시 — 표시된 값은 클릭하면 복사, 더블클릭하면 편집")
+            } else if variable.isSecret && !isEditingValue {
+                Text(valueText.isEmpty ? "값 없음" : valueText)
+                    .fontDesign(.monospaced)
+                    .foregroundStyle(valueText.isEmpty ? SeedColor.fgNeutralMuted : SeedColor.fgNeutral)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) {
+                        isEditingValue = true
+                        focusedField = .value
+                    }
+                    .onTapGesture { copyValue() }
+                    .help("클릭하여 복사, 더블클릭하여 편집")
             } else {
                 TextField("값 없음", text: $valueText)
                     .textFieldStyle(.plain)
                     .fontDesign(.monospaced)
+                    .focused($focusedField, equals: .value)
                     .onSubmit(commitValue)
             }
 
             TextField("설명", text: $noteText)
                 .textFieldStyle(.plain)
-                .foregroundStyle(.secondary)
-                .frame(width: 180)
+                .font(SeedTypography.caption)
+                .foregroundStyle(SeedColor.fgNeutralMuted)
+                .frame(width: 110)
+                .focused($focusedField, equals: .note)
                 .onSubmit(commitNote)
 
-            if showClipboardNote {
-                Text("30초 후 클립보드에서 삭제됨")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            // 자리를 항상 확보해 나타났다 사라져도 레이아웃이 밀리지 않게
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(SeedColor.fgPositive)
+                .opacity(savedFlash ? 1 : 0)
+                .accessibilityLabel(savedFlash ? "저장됨" : "")
+
+            Menu {
+                Button("수정…", systemImage: "pencil", action: onEdit)
+                Button(variable.isSecret ? "Secret 해제" : "Secret으로 전환",
+                       systemImage: variable.isSecret ? "lock.open" : "lock",
+                       action: onToggleSecret)
+                Divider()
+                Button("삭제", systemImage: "trash", role: .destructive, action: onDelete)
+            } label: {
+                Image(systemName: "ellipsis")
             }
-            Button("복사", systemImage: "doc.on.doc") {
-                // Secret만 30초 후 자동 삭제 대상 (§3.16)
-                ClipboardService.copy(VariableService.value(of: variable),
-                                      clearAfterDelay: variable.isSecret)
-                if variable.isSecret {
-                    showClipboardNote = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { showClipboardNote = false }
-                }
-            }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.borderless)
+            .menuStyle(.button)
+            .buttonStyle(.seedIcon())
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("더보기")
         }
-        .padding(.vertical, 2)
+        .seedListRow()
         .onAppear {
-            valueText = variable.isSecret ? "" : variable.value
+            reloadValueFromModel()
             noteText = variable.note ?? ""
+            committedNote = noteText
+        }
+        .onChange(of: variable.updatedAt) {
+            guard valueText == committedValue else { return }
+            reloadValueFromModel()
+        }
+        .onChange(of: focusedField) { old, _ in
+            // Enter 없이 다른 곳을 클릭해도 저장 (§3.3 인라인 편집)
+            if old == .value { commitValue(); isEditingValue = false }
+            if old == .note { commitNote() }
         }
     }
 
     private func reveal() {
-        valueText = VariableService.value(of: variable)
-        revealed = true
+        Task {
+            guard await BiometricGate.authorize(reason: "\(variable.key) 값을 표시") else { return }
+            valueText = VariableService.value(of: variable)
+            committedValue = valueText
+            revealed = true
+        }
+    }
+
+    /// 표시(인증) 이후의 복사 — grace 개념과 별개로, 이미 화면에 보이는 값이라 재인증하지 않는다.
+    private func copyValue() {
+        ClipboardService.copy(VariableService.value(of: variable), clearAfterDelay: variable.isSecret)
+        onNotify(SeedSnackbarMessage(
+            variable.isSecret ? "복사됨 — 30초 후 클립보드에서 삭제" : "값 복사됨",
+            tone: .positive))
+    }
+
+    private func reloadValueFromModel() {
+        valueText = variable.isSecret
+            ? (revealed ? VariableService.value(of: variable) : "")
+            : variable.value
+        committedValue = valueText
+    }
+
+    private func flashSaved() {
+        savedFlash = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { savedFlash = false }
     }
 
     private func commitValue() {
-        do { try VariableService.updateValue(variable, to: valueText, context: context) }
-        catch { onError(error.localizedDescription) }
+        guard valueText != committedValue else { return }
+        do {
+            try VariableService.updateValue(variable, to: valueText, context: context)
+            committedValue = valueText
+            flashSaved()
+        } catch { onError(error.localizedDescription) }
     }
 
     private func commitNote() {
-        do { try VariableService.updateNote(variable, to: noteText, context: context) }
-        catch { onError(error.localizedDescription) }
+        guard noteText != committedNote else { return }
+        do {
+            try VariableService.updateNote(variable, to: noteText, context: context)
+            committedNote = noteText
+            flashSaved()
+        } catch { onError(error.localizedDescription) }
     }
 }
 
+/// 추가/수정 겸용 — variable이 있으면 수정 모드 (Secret 값은 호출측에서 인증 후 연다).
 private struct AddVariableSheet: View {
     let target: Target
-    let environmentName: String
+    let variable: Variable?
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var key: String
-    @State private var value = ""
-    @State private var note = ""
-    @State private var isSecret = false
+    @State private var value: String
+    @State private var note: String
+    @State private var isSecret: Bool
     @State private var errorMessage: String?
 
-    init(target: Target, environmentName: String, initialKey: String = "") {
+    init(target: Target, initialKey: String = "", variable: Variable? = nil) {
         self.target = target
-        self.environmentName = environmentName
-        _key = State(initialValue: initialKey)
+        self.variable = variable
+        _key = State(initialValue: variable?.key ?? initialKey)
+        _value = State(initialValue: variable.map { VariableService.value(of: $0) } ?? "")
+        _note = State(initialValue: variable?.note ?? "")
+        _isSecret = State(initialValue: variable?.isSecret ?? false)
     }
 
     var body: some View {
-        Form {
-            Section("새 키 — \(environmentName)") {
-                TextField("KEY", text: $key)
+        VStack(alignment: .leading, spacing: SeedSpacing.x5) {
+            Text(variable == nil ? "새 키" : "키 수정")
+                .font(SeedTypography.title)
+                .foregroundStyle(SeedColor.fgNeutral)
+            SeedField("KEY") {
+                SeedTextField("예: API_KEY", text: $key)
                     .fontDesign(.monospaced)
                     .autocorrectionDisabled()
-                TextField("값", text: $value).fontDesign(.monospaced)
-                TextField("설명 (선택)", text: $note)
-                Toggle("Secret (Keychain에 저장)", isOn: $isSecret)
             }
+            SeedField("값") {
+                SeedTextField("", text: $value).fontDesign(.monospaced)
+            }
+            SeedField("설명 (선택)") {
+                SeedTextField("", text: $note)
+            }
+            Toggle("Secret (Keychain에 저장)", isOn: $isSecret)
+                .toggleStyle(.seed)
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                SeedCallout(errorMessage, tone: .critical)
             }
-        }
-        .formStyle(.grouped)
-        .frame(width: 420)
-        .padding(.bottom)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
+            HStack {
+                Spacer()
                 Button("취소") { dismiss() }
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button("추가", action: add).disabled(key.isEmpty)
+                    .buttonStyle(.seed(.neutralWeak, size: .small))
+                    .keyboardShortcut(.cancelAction)
+                Button(variable == nil ? "추가" : "저장", action: save)
+                    .buttonStyle(.seed(.brandSolid, size: .small))
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(key.isEmpty)
             }
         }
+        .padding(SeedSpacing.x5)
+        .frame(width: 420)
     }
 
-    private func add() {
+    private func save() {
+        let trimmedKey = key.trimmingCharacters(in: .whitespaces)
         do {
-            try VariableService.create(
-                key: key.trimmingCharacters(in: .whitespaces),
-                value: value,
-                note: note.isEmpty ? nil : note,
-                isSecret: isSecret,
-                environmentName: environmentName,
-                target: target,
-                context: context
-            )
+            if let variable {
+                try VariableService.rename(variable, to: trimmedKey, context: context)
+                if variable.isSecret != isSecret {
+                    try VariableService.setSecret(variable, isSecret, context: context)
+                }
+                try VariableService.updateValue(variable, to: value, context: context)
+                try VariableService.updateNote(variable, to: note, context: context)
+            } else {
+                try VariableService.create(
+                    key: trimmedKey,
+                    value: value,
+                    note: note.isEmpty ? nil : note,
+                    isSecret: isSecret,
+                    environmentName: target.envFilePath,
+                    target: target,
+                    context: context
+                )
+            }
             dismiss()
         } catch {
             errorMessage = error.localizedDescription

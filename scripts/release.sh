@@ -163,6 +163,10 @@ create-dmg \
     "$dmg_staging"
 
 identity="$(security find-identity -v -p codesigning | awk -F '"' '/Developer ID Application:.*\(DKYJDHFLUG\)/ {print $2; exit}')"
+if [[ -z "$identity" ]]; then
+    echo "Developer ID Application 인증서(DKYJDHFLUG)를 찾을 수 없습니다." >&2
+    exit 1
+fi
 codesign --sign "$identity" --timestamp "$dmg"
 
 xcrun notarytool submit "$dmg" --keychain-profile "$notary_profile" --wait

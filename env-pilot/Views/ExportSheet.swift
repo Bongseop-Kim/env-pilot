@@ -36,36 +36,42 @@ struct ExportSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Export — .envide 번들")
-                .font(.headline)
+                .font(SeedTypography.title)
 
-            Picker("범위", selection: $wholeWorkspace) {
-                Text(repo.name).tag(false)
-                Text("전체 Workspace").tag(true)
+            VStack(spacing: SeedSpacing.x2) {
+                SeedSelectBox(repo.name, description: "이 Repository만 내보냅니다",
+                              isSelected: !wholeWorkspace) { wholeWorkspace = false }
+                SeedSelectBox("전체 Workspace", description: "모든 Repository를 내보냅니다",
+                              isSelected: wholeWorkspace) { wholeWorkspace = true }
             }
-            .pickerStyle(.radioGroup)
 
             Toggle("Secret 실값 포함", isOn: $includeSecrets)
+                .toggleStyle(.seed)
             if includeSecrets {
-                SecureField("패스프레이즈", text: $passphrase)
-                SecureField("패스프레이즈 확인", text: $passphraseConfirm)
+                SeedTextField("패스프레이즈", text: $passphrase, secure: true)
+                SeedTextField("패스프레이즈 확인", text: $passphraseConfirm,
+                              isInvalid: !passphraseConfirm.isEmpty && passphrase != passphraseConfirm,
+                              secure: true)
                 Text("Secret이 포함되므로 파일 전체가 AES-GCM으로 암호화됩니다. 패스프레이즈를 잊으면 복구할 수 없습니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(SeedTypography.body)
+                    .foregroundStyle(SeedColor.fgNeutralMuted)
             } else {
                 Text("Secret은 구조만 내보내고 값은 비웁니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(SeedTypography.body)
+                    .foregroundStyle(SeedColor.fgNeutralMuted)
             }
 
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red).font(.caption)
+                SeedCallout(errorMessage, tone: .critical)
             }
 
             HStack {
                 Spacer()
                 Button("취소") { dismiss() }
+                    .buttonStyle(.seed(.neutralWeak, size: .small))
                     .keyboardShortcut(.cancelAction)
                 Button("내보내기…") { export() }
+                    .buttonStyle(.seed(.brandSolid, size: .small))
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canExport)
             }
@@ -91,9 +97,9 @@ struct ExportSheet: View {
         let repos = wholeWorkspace
             ? (workspace.repositories ?? []).sorted { $0.createdAt < $1.createdAt }
             : [repo]
-        let environments = (workspace.environments ?? [])
-            .sorted { $0.sortOrder < $1.sortOrder }
-            .map(\.name)
+        // 번들 포맷 v1 호환 — environments는 대상 repo들의 합집합
+        var seen = Set<String>()
+        let environments = repos.flatMap(\.environmentNames).filter { seen.insert($0).inserted }
         do {
             let payload = BundleCodec.makePayload(repos: repos, environments: environments,
                                                   includeSecrets: includeSecrets)

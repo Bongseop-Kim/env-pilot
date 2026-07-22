@@ -1,37 +1,131 @@
 import SwiftUI
 
-/// Health 탭 (PRD §3.8) — Target × Environment 판정 상세 + Git Safety 이슈 + pre-commit hook (§3.19).
+extension HealthStatus {
+    var seedTone: SeedTone {
+        switch self {
+        case .healthy: .positive
+        case .warning: .warning
+        case .critical: .critical
+        }
+    }
+
+    var color: Color { seedTone.fg }
+}
+
+/// Health 탭 (PRD §3.8) — 실제 env 파일 판정 + Git Safety 이슈 + pre-commit hook (§3.19).
 struct HealthView: View {
     let items: [HealthService.Item]
     let safetyReports: [GitSafetyService.Report]
     let hookInstalled: Bool?   // nil = Git 저장소 아님 → hook 섹션 숨김
-    let onSelectMissingKey: (_ targetPath: String, _ environmentName: String, _ key: String) -> Void
+    let historyLeaks: [String]? // Git 히스토리에서 발견된 .env 파일명. nil = 비Git 또는 스캔 중
+    let claudeEnvDenied: Bool? // nil = .claude 설정 없음 → Claude 행 숨김
+    let agentsRuleInstalled: Bool // AGENTS.md 공통 규칙 — 모든 에이전트 대상이라 항상 표시
+    let onSelectMissingKey: (_ filePath: String, _ key: String) -> Void
     let onAddToGitignore: (_ fileName: String) -> Void
     let onFixPermissions: (_ report: GitSafetyService.Report) -> Void
     let onInstallHook: () -> Void
     let onRemoveHook: () -> Void
+    let onAddClaudeDeny: () -> Void
+    let onAddAgentsRule: () -> Void
 
     private var allHealthy: Bool {
         items.allSatisfy { $0.status == .healthy } && !safetyReports.contains(where: \.hasIssue)
+            && (historyLeaks ?? []).isEmpty
     }
 
     var body: some View {
-        if items.isEmpty && safetyReports.allSatisfy({ !$0.hasIssue }) && hookInstalled == nil {
+        if items.isEmpty && safetyReports.allSatisfy({ !$0.hasIssue }) && hookInstalled == nil
+            && claudeEnvDenied == nil && agentsRuleInstalled {
             ContentUnavailableView("판정 대상 없음", systemImage: "questionmark.circle",
-                                   description: Text(".env.example이 있는 Target이 없습니다"))
+                                   description: Text(".env.example과 함께 확인할 실제 env 파일이 없습니다"))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)   // 상단 정렬 VStack 안에서 중앙 배치
         } else {
             List {
                 if allHealthy {
-                    Label("All Healthy — 모든 Environment가 example 키를 충족합니다",
+                    Label("All Healthy — 모든 .env 파일이 example 키를 충족합니다",
                           systemImage: "checkmark.seal.fill")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(SeedColor.fgPositive)
                 } else {
                     healthSections
                     safetySection
                 }
+                historySection
                 hookSection
+                agentSection
             }
         }
+    }
+
+    /// AI 에이전트 노출 — .env 읽기 차단 (1Password zero-exposure 참고).
+    /// AGENTS.md는 모든 에이전트 공통(지시), Claude Code는 permissions.deny(강제).
+    @ViewBuilder private var agentSection: some View {
+        Section("AI 에이전트") {
+            HStack {
+                Label(agentsRuleInstalled
+                      ? "AGENTS.md — 모든 에이전트에 .env 읽기 금지 규칙이 있습니다"
+                      : "AGENTS.md에 .env 읽기 금지 규칙이 없습니다 (Codex·Cursor 등 공통)",
+                      systemImage: agentsRuleInstalled ? "checkmark.shield.fill" : "exclamationmark.triangle.fill")
+                    .foregroundStyle(agentsRuleInstalled ? SeedColor.fgPositive : SeedColor.fgWarning)
+                Spacer()
+                if !agentsRuleInstalled {
+                    Button("AGENTS.md에 규칙 추가") { onAddAgentsRule() }
+                        .buttonStyle(.seed(.neutralWeak, size: .xsmall))
+                        .help("AGENTS.md에 .env 파일을 읽지 말라는 공통 규칙 블록을 추가합니다")
+                }
+            }
+            if let claudeEnvDenied {
+                HStack {
+                    Label(claudeEnvDenied
+                          ? "차단됨 — Claude Code가 .env 파일을 읽을 수 없습니다"
+                          : "Claude Code 설정이 있지만 .env 파일 읽기가 차단되지 않았습니다",
+                          systemImage: claudeEnvDenied ? "checkmark.shield.fill" : "exclamationmark.triangle.fill")
+                        .foregroundStyle(claudeEnvDenied ? SeedColor.fgPositive : SeedColor.fgWarning)
+                    Spacer()
+                    if !claudeEnvDenied {
+                        Button("읽기 차단 규칙 추가") { onAddClaudeDeny() }
+                            .buttonStyle(.seed(.neutralWeak, size: .xsmall))
+                            .help(".claude/settings.local.json의 permissions.deny에 출력 파일 차단 규칙을 추가합니다")
+                    }
+                }
+            }
+        }
+    }
+
+    /// Git 히스토리에 커밋된 적 있는 .env — git rm으로 지워지지 않는 과거 노출 감지.
+    @ViewBuilder private var historySection: some View {
+        if let historyLeaks {
+            Section("Git 히스토리") {
+                if historyLeaks.isEmpty {
+                    Label("Git 히스토리에서 .env 흔적이 발견되지 않았습니다",
+                          systemImage: "checkmark.shield.fill")
+                        .foregroundStyle(SeedColor.fgPositive)
+                } else {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("과거 커밋에 남아 있음: \(historyLeaks.joined(separator: ", "))",
+                              systemImage: "xmark.octagon.fill")
+                            .foregroundStyle(SeedColor.fgCritical)
+                        HStack {
+                            Text("git rm으로는 지워지지 않습니다. 히스토리에서 제거하고 노출된 키를 로테이션하세요.")
+                                .font(SeedTypography.body)
+                                .foregroundStyle(SeedColor.fgNeutralMuted)
+                            Button("정리 명령 복사") {
+                                ClipboardService.copy(Self.cleanupCommand(historyLeaks),
+                                                      clearAfterDelay: false)
+                            }
+                            .buttonStyle(.seed(.neutralWeak, size: .xsmall))
+                            .help("git filter-repo로 히스토리에서 해당 파일을 제거하는 명령을 복사합니다")
+                        }
+                    }
+                    .seedListRow()
+                }
+            }
+        }
+    }
+
+    /// 모든 깊이의 해당 파일명을 히스토리에서 제거 (fnmatch의 *는 /도 매칭).
+    static func cleanupCommand(_ names: [String]) -> String {
+        let globs = names.flatMap { ["--path-glob '\($0)'", "--path-glob '*/\($0)'"] }
+        return "git filter-repo --invert-paths \(globs.joined(separator: " ")) --force"
     }
 
     /// §3.19 — 스테이징된 .env 파일 커밋을 차단하는 pre-commit hook 설치/제거.
@@ -43,63 +137,49 @@ struct HealthView: View {
                           ? "설치됨 — .env 파일 커밋이 차단됩니다"
                           : ".env 파일 커밋을 차단하는 hook을 설치할 수 있습니다",
                           systemImage: hookInstalled ? "checkmark.shield.fill" : "shield")
-                        .foregroundStyle(hookInstalled ? .green : .secondary)
+                        .foregroundStyle(hookInstalled ? SeedColor.fgPositive : SeedColor.fgNeutralMuted)
                     Spacer()
                     Button(hookInstalled ? "제거" : "pre-commit hook 설치") {
                         hookInstalled ? onRemoveHook() : onInstallHook()
                     }
-                    .controlSize(.small)
+                    .buttonStyle(.seed(.neutralWeak, size: .xsmall))
                 }
             }
         }
     }
 
     @ViewBuilder private var healthSections: some View {
-        let grouped = Dictionary(grouping: items, by: \.targetPath)
-        let targetPaths = grouped.keys.sorted()
-        ForEach(targetPaths, id: \.self) { targetPath in
-            if targetPaths.count == 1 {
-                healthRows(grouped[targetPath] ?? [])
-            } else {
-                Section(targetPath == "." ? "Root" : targetPath) {
-                    healthRows(grouped[targetPath] ?? [])
-                }
-            }
-        }
-    }
-
-    @ViewBuilder private func healthRows(_ items: [HealthService.Item]) -> some View {
         ForEach(items) { item in
             HStack(alignment: .top) {
-                Text(item.status.symbol)
-                Text(item.environmentName).frame(width: 110, alignment: .leading)
+                Image(systemName: item.status.iconName)
+                    .foregroundStyle(item.status.color)
+                Text(item.filePath)
+                    .fontDesign(.monospaced)
+                    .frame(width: 180, alignment: .leading)
                 keyChips(item)
                 Spacer()
             }
+            .seedListRow()
         }
     }
 
     @ViewBuilder private func keyChips(_ item: HealthService.Item) -> some View {
         if item.status == .healthy {
-            Text("Healthy").foregroundStyle(.secondary).font(.caption)
+            Text("Healthy").foregroundStyle(SeedColor.fgNeutralMuted).font(SeedTypography.body)
         } else {
             // 누락 키 클릭 → 해당 Variable 입력으로 이동 (§3.8 수용 기준)
             WrappingHStack {
                 ForEach(item.missingKeys, id: \.self) { key in
                     Button("\(key) 누락") {
-                        onSelectMissingKey(item.targetPath, item.environmentName, key)
+                        onSelectMissingKey(item.filePath, key)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .tint(.red)
+                    .buttonStyle(.seedChip(.critical))
                 }
                 ForEach(item.emptyValueKeys, id: \.self) { key in
                     Button("\(key) 빈 값") {
-                        onSelectMissingKey(item.targetPath, item.environmentName, key)
+                        onSelectMissingKey(item.filePath, key)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .tint(.yellow)
+                    .buttonStyle(.seedChip(.warning))
                 }
             }
         }
@@ -115,39 +195,28 @@ struct HealthView: View {
                         HStack {
                             if !report.isIgnored {
                                 Label(".gitignore에 없음", systemImage: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(.red)
+                                    .foregroundStyle(SeedColor.fgCritical)
                                 Button(".gitignore에 추가") {
                                     onAddToGitignore((report.outputRelativePath as NSString).lastPathComponent)
                                 }
-                                .controlSize(.small)
+                                .buttonStyle(.seed(.neutralWeak, size: .xsmall))
                             }
                             if report.isTracked {
                                 Label("Git에 커밋되어 있음 — git rm --cached로 제거 필요", systemImage: "xmark.octagon.fill")
-                                    .foregroundStyle(.red)
+                                    .foregroundStyle(SeedColor.fgCritical)
                             }
                             if report.permissionsOK == false {
                                 Label("권한이 0600이 아님", systemImage: "lock.open")
-                                    .foregroundStyle(.yellow)
+                                    .foregroundStyle(SeedColor.fgWarning)
                                 Button("수정") { onFixPermissions(report) }
-                                    .controlSize(.small)
+                                    .buttonStyle(.seed(.neutralWeak, size: .xsmall))
                             }
                         }
-                        .font(.caption)
+                        .font(SeedTypography.body)
                     }
-                    .padding(.vertical, 2)
+                    .seedListRow()
                 }
             }
-        }
-    }
-}
-
-/// 단순 줄바꿈 HStack 대체 — 키가 많으면 여러 줄로.
-private struct WrappingHStack<Content: View>: View {
-    @ViewBuilder let content: Content
-    var body: some View {
-        // ponytail: FlowLayout 대신 LazyVGrid — 충분히 읽히고 코드가 짧다
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), alignment: .leading)], alignment: .leading, spacing: 4) {
-            content
         }
     }
 }

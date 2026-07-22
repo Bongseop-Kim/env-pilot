@@ -37,7 +37,8 @@ enum ImportService {
 
     /// useFileValue: conflict 키 중 "파일 값 사용"을 선택한 키 집합.
     static func execute(items: [Item], useFileValue: Set<String>, target: Target,
-                        environmentName: String, context: ModelContext) throws {
+                        environmentName: String, newKeysAreSecret: Bool = false,
+                        context: ModelContext) throws {
         for item in items {
             switch item.kind {
             case .add:
@@ -46,9 +47,13 @@ enum ImportService {
                     $0.key == item.key && $0.environmentName == environmentName && $0.isIgnored
                 }) {
                     marker.isIgnored = false
+                    if newKeysAreSecret {
+                        try VariableService.setSecret(marker, true, context: context)
+                    }
                     try VariableService.updateValue(marker, to: item.newValue, context: context)
                 } else {
                     try VariableService.create(key: item.key, value: item.newValue,
+                                               isSecret: newKeysAreSecret,
                                                environmentName: environmentName, target: target, context: context)
                 }
             case .conflict where useFileValue.contains(item.key):
