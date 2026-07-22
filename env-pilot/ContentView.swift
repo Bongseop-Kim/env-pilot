@@ -295,7 +295,7 @@ struct RepositoryDetailView: View {
     @State private var envFileEditRequest: EnvFileEditRequest?
     @State private var envFilePendingDelete: Target?
 
-    enum DetailTab { case variables, accounts, health, gitChanges }
+    enum DetailTab { case variables, accounts, health, security, gitChanges }
 
     private var isLinked: Bool { RepositoryService.resolveBookmark(repo) != nil }
     private var targets: [Target] { (repo.targets ?? []).sorted { $0.envFilePath < $1.envFilePath } }
@@ -476,16 +476,19 @@ struct RepositoryDetailView: View {
         case .health:
             HealthView(
                 items: healthItems,
+                onSelectMissingKey: { filePath, key in
+                    selectedEnvFilePath = filePath
+                    tab = .variables
+                    pendingAddKey = key
+                }
+            )
+        case .security:
+            SecurityView(
                 safetyReports: safetyReports,
                 hookInstalled: hookInstalled,
                 historyLeaks: historyLeaks,
                 claudeEnvDenied: claudeEnvDenied,
                 agentsRuleInstalled: agentsRuleInstalled,
-                onSelectMissingKey: { filePath, key in
-                    selectedEnvFilePath = filePath
-                    tab = .variables
-                    pendingAddKey = key
-                },
                 onAddToGitignore: { fileName in
                     guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
                     try? GitSafetyService.addToGitignore(line: fileName, rootURL: rootURL)
@@ -638,7 +641,8 @@ struct RepositoryDetailView: View {
             SeedTabs(selection: $tab, items: [
                 (DetailTab.variables, "Variables", "curlybraces"),
                 (DetailTab.accounts, "Accounts", "person.badge.key"),
-                (DetailTab.health, "Health", "checkmark.shield"),
+                (DetailTab.health, "Health", "checkmark.seal"),
+                (DetailTab.security, "Security", "lock.shield"),
                 (DetailTab.gitChanges, "Changes", "arrow.triangle.2.circlepath"),
             ])
             .padding(.horizontal, SeedSpacing.x4)

@@ -9,5 +9,8 @@ extension View {
             .frame(minHeight: SeedSpacing.x8)
             .padding(.vertical, SeedSpacing.x2)
             .listRowSeparatorTint(SeedColor.strokeNeutralMuted)
+            // separator 시작점을 행 leading으로 고정 — 기본값은 첫 텍스트 기준이라
+            // Label(아이콘) 행과 Text 행의 separator 길이가 달라진다.
+            .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
     }
 }
