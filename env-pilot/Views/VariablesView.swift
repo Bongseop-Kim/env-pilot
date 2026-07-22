@@ -155,7 +155,8 @@ struct VariablesView: View {
 
 }
 
-/// 한 변수의 행: 값 인라인 편집(Enter 또는 포커스 이탈 시 저장), Secret 마스킹(클릭 시 일시 표시), 복사, 더보기 메뉴.
+/// 한 변수의 행: 키 클릭=복사. Secret 값은 클릭=표시(인증) → 클릭=복사, 더블클릭=편집.
+/// 일반 값은 인라인 편집(Enter 또는 포커스 이탈 시 저장). 더보기 메뉴(Secret 전환·삭제).
 private struct VariableRow: View {
     let variable: Variable
     let onError: (String) -> Void
@@ -168,6 +169,7 @@ private struct VariableRow: View {
     @State private var committedValue = ""   // blur 커밋 시 불필요한 저장 방지용 기준값
     @State private var committedNote = ""
     @State private var revealed = false
+    @State private var isEditingValue = false   // Secret은 표시 후 클릭=복사, 더블클릭=편집
     @State private var savedFlash = false    // 저장 직후 체크마크
     @FocusState private var focusedField: Field?
 
@@ -180,16 +182,34 @@ private struct VariableRow: View {
                     Image(systemName: "lock.fill").foregroundStyle(SeedColor.fgNeutralMuted).font(SeedTypography.body)
                 }
                 Text(variable.key).fontDesign(.monospaced).fontWeight(.medium)
-                    .help(variable.key)   // 고정폭 컬럼에서 잘린 긴 키 확인용
             }
             .frame(width: 220, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                ClipboardService.copy(variable.key, clearAfterDelay: false)
+                onNotify(SeedSnackbarMessage("키 복사됨", tone: .positive))
+            }
+            .help("클릭하여 키 복사 — \(variable.key)")
 
             if variable.isSecret && !revealed {
                 Button("••••••••") { reveal() }
                     .buttonStyle(.plain)
                     .foregroundStyle(SeedColor.fgNeutralMuted)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .help("클릭하여 표시")
+                    .help("클릭하여 표시 — 표시된 값은 클릭하면 복사, 더블클릭하면 편집")
+            } else if variable.isSecret && !isEditingValue {
+                Text(valueText.isEmpty ? "값 없음" : valueText)
+                    .fontDesign(.monospaced)
+                    .foregroundStyle(valueText.isEmpty ? SeedColor.fgNeutralMuted : SeedColor.fgNeutral)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) {
+                        isEditingValue = true
+                        focusedField = .value
+                    }
+                    .onTapGesture { copyValue() }
+                    .help("클릭하여 복사, 더블클릭하여 편집")
             } else {
                 TextField("값 없음", text: $valueText)
                     .textFieldStyle(.plain)
@@ -211,23 +231,6 @@ private struct VariableRow: View {
                 .foregroundStyle(SeedColor.fgPositive)
                 .opacity(savedFlash ? 1 : 0)
                 .accessibilityLabel(savedFlash ? "저장됨" : "")
-
-            Button("복사", systemImage: "doc.on.doc") {
-                Task {
-                    if variable.isSecret {
-                        guard await BiometricGate.authorize(reason: "\(variable.key) 값을 복사") else { return }
-                    }
-                    // Secret만 30초 후 자동 삭제 대상 (§3.16)
-                    ClipboardService.copy(VariableService.value(of: variable),
-                                          clearAfterDelay: variable.isSecret)
-                    onNotify(SeedSnackbarMessage(
-                        variable.isSecret ? "복사됨 — 30초 후 클립보드에서 삭제" : "값 복사됨",
-                        tone: .positive))
-                }
-            }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.seedIcon())
-            .help(variable.isSecret ? "값 복사 — 30초 후 클립보드에서 자동 삭제됩니다" : "값 복사")
 
             Menu {
                 Button(variable.isSecret ? "Secret 해제" : "Secret으로 전환",
@@ -256,7 +259,7 @@ private struct VariableRow: View {
         }
         .onChange(of: focusedField) { old, _ in
             // Enter 없이 다른 곳을 클릭해도 저장 (§3.3 인라인 편집)
-            if old == .value { commitValue() }
+            if old == .value { commitValue(); isEditingValue = false }
             if old == .note { commitNote() }
         }
     }
@@ -268,6 +271,14 @@ private struct VariableRow: View {
             committedValue = valueText
             revealed = true
         }
+    }
+
+    /// 표시(인증) 이후의 복사 — grace 개념과 별개로, 이미 화면에 보이는 값이라 재인증하지 않는다.
+    private func copyValue() {
+        ClipboardService.copy(VariableService.value(of: variable), clearAfterDelay: variable.isSecret)
+        onNotify(SeedSnackbarMessage(
+            variable.isSecret ? "복사됨 — 30초 후 클립보드에서 삭제" : "값 복사됨",
+            tone: .positive))
     }
 
     private func reloadValueFromModel() {

@@ -315,6 +315,25 @@ struct RepositoryDetailView: View {
         .frame(maxHeight: .infinity, alignment: .top)
         .toolbar {
             ToolbarItemGroup {
+                AuthGraceBadge()
+                if tab == .variables, let target = selectedTarget {
+                    if targets.count > 1 {
+                        Picker("Env 파일", selection: Binding(
+                            get: { selectedTarget?.envFilePath ?? "" },
+                            set: { selectedEnvFilePath = $0 }
+                        )) {
+                            ForEach(targets, id: \.envFilePath) { target in
+                                Text(target.envFilePath).tag(target.envFilePath)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .help("작업할 .env 파일 선택")
+                    } else {
+                        Text(target.envFilePath)
+                            .fontDesign(.monospaced)
+                    }
+                }
                 if tab == .variables {
                     Menu("Env 파일 관리", systemImage: "doc.badge.gearshape") {
                         Button("새 .env 파일…", systemImage: "plus") {
@@ -599,43 +618,20 @@ struct RepositoryDetailView: View {
         return status == .healthy ? [:] : [.health: status.color]
     }
 
-    /// Variables에서만 실제 env 파일을 선택한다. 동기화 액션은 콘텐츠의 diff 배너에 둔다.
+    /// env 파일 선택은 윈도우 툴바에 있다. 동기화 액션은 콘텐츠의 diff 배너에 둔다.
     private var header: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: SeedSpacing.x2) {
-                if !isLinked {
-                    HStack {
-                        StatusLabel("이 Mac에서 폴더에 접근할 수 없습니다",
-                                    systemImage: "exclamationmark.triangle", tone: .warning)
-                        Button("폴더 다시 연결…") { showRelinker = true }
-                            .buttonStyle(.seed(.neutralWeak, size: .xsmall))
-                    }
+            if !isLinked {
+                HStack {
+                    StatusLabel("이 Mac에서 폴더에 접근할 수 없습니다",
+                                systemImage: "exclamationmark.triangle", tone: .warning)
+                    Button("폴더 다시 연결…") { showRelinker = true }
+                        .buttonStyle(.seed(.neutralWeak, size: .xsmall))
                 }
-                if tab == .variables, let target = selectedTarget {
-                    HStack(spacing: SeedSpacing.x2) {
-                        if targets.count > 1 {
-                            Picker("Env 파일", selection: Binding(
-                                get: { selectedTarget?.envFilePath ?? "" },
-                                set: { selectedEnvFilePath = $0 }
-                            )) {
-                                ForEach(targets, id: \.envFilePath) { target in
-                                    Text(target.envFilePath).tag(target.envFilePath)
-                                }
-                            }
-                            .pickerStyle(.menu)
-                            .fixedSize()
-                        } else {
-                            Label(target.envFilePath, systemImage: "doc.text")
-                                .font(SeedTypography.label)
-                                .fontDesign(.monospaced)
-                        }
-                        Spacer()
-                    }
-                }
+                .padding(.horizontal, SeedSpacing.x4)
+                .padding(.top, SeedSpacing.x2_5)
+                .padding(.bottom, SeedSpacing.x1)
             }
-            .padding(.horizontal, SeedSpacing.x4)
-            .padding(.top, SeedSpacing.x2_5)
-            .padding(.bottom, SeedSpacing.x1)
 
             SeedTabs(selection: $tab, items: [
                 (DetailTab.variables, "Variables", "curlybraces"),
@@ -646,6 +642,22 @@ struct RepositoryDetailView: View {
             .padding(.horizontal, SeedSpacing.x4)
             .frame(maxWidth: .infinity, alignment: .leading)
             .overlay(alignment: .bottom) { SeedDivider() }   // 탭 인디케이터가 이 선 위에 겹친다
+        }
+    }
+}
+
+/// 인증 성공 후 60초 grace 카운트다운 — 이 시간 동안은 비밀번호 확인 없이
+/// Secret 표시·복사가 된다는 걸 눈에 보이게 한다 (BiometricGate.graceInterval).
+struct AuthGraceBadge: View {
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { timeline in
+            let remaining = Int(BiometricGate.graceRemaining(at: timeline.date).rounded(.up))
+            if remaining > 0 {
+                Label("잠금 해제 \(remaining)초", systemImage: "lock.open.fill")
+                    .foregroundStyle(SeedColor.fgPositive)
+                    .monospacedDigit()
+                    .help("인증 완료 — \(remaining)초 동안 비밀번호 확인 없이 Secret을 표시·복사할 수 있습니다")
+            }
         }
     }
 }

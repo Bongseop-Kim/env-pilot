@@ -69,7 +69,7 @@ struct CredentialsView: View {
     }
 }
 
-/// 한 계정의 행: 아이디 복사, 비밀번호 마스킹(클릭 시 일시 표시)/복사, 주소 열기, 더보기 메뉴.
+/// 한 계정의 행: 아이디 클릭=복사. 비밀번호는 클릭=표시(인증) → 클릭=복사, 더블클릭=편집. 주소 열기, 더보기 메뉴.
 private struct CredentialRow: View {
     let credential: Credential
     let onError: (String) -> Void
@@ -78,6 +78,8 @@ private struct CredentialRow: View {
     @Environment(\.modelContext) private var context
     @State private var passwordText = ""
     @State private var revealed = false
+    @State private var isEditing = false
+    @FocusState private var passwordFocused: Bool
 
     var body: some View {
         HStack(spacing: 12) {
@@ -91,28 +93,41 @@ private struct CredentialRow: View {
             }
             .frame(width: 180, alignment: .leading)
 
-            HStack(spacing: 4) {
-                Text(credential.username).fontDesign(.monospaced).textSelection(.enabled)
-                Button("아이디 복사", systemImage: "doc.on.doc") {
+            Text(credential.username).fontDesign(.monospaced)
+                .lineLimit(1)
+                .frame(width: 220, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture {
                     ClipboardService.copy(credential.username, clearAfterDelay: false)
                     onNotify(SeedSnackbarMessage("아이디 복사됨", tone: .positive))
                 }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.seedIcon())
-            }
-            .frame(width: 220, alignment: .leading)
+                .help("클릭하여 아이디 복사 — \(credential.username)")
 
-            if revealed {
-                TextField("비밀번호", text: $passwordText)
-                    .textFieldStyle(.plain)
-                    .fontDesign(.monospaced)
-                    .onSubmit(commitPassword)
-            } else {
+            if !revealed {
                 Button("••••••••") { reveal() }
                     .buttonStyle(.plain)
                     .foregroundStyle(SeedColor.fgNeutralMuted)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .help("클릭하여 표시")
+                    .help("클릭하여 표시 — 표시된 비밀번호는 클릭하면 복사, 더블클릭하면 편집")
+            } else if !isEditing {
+                Text(passwordText.isEmpty ? "비밀번호 없음" : passwordText)
+                    .fontDesign(.monospaced)
+                    .foregroundStyle(passwordText.isEmpty ? SeedColor.fgNeutralMuted : SeedColor.fgNeutral)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) {
+                        isEditing = true
+                        passwordFocused = true
+                    }
+                    .onTapGesture { copyPassword() }
+                    .help("클릭하여 복사, 더블클릭하여 편집")
+            } else {
+                TextField("비밀번호", text: $passwordText)
+                    .textFieldStyle(.plain)
+                    .fontDesign(.monospaced)
+                    .focused($passwordFocused)
+                    .onSubmit(commitPassword)
             }
 
             if let url = CredentialService.openableURL(credential.urlString) {
@@ -123,17 +138,6 @@ private struct CredentialRow: View {
                 .buttonStyle(.seedIcon())
                 .help(credential.urlString ?? "")
             }
-            Button("비밀번호 복사", systemImage: "doc.on.doc") {
-                Task {
-                    guard await BiometricGate.authorize(reason: "\(credential.label) 비밀번호를 복사") else { return }
-                    ClipboardService.copy(CredentialService.password(of: credential), clearAfterDelay: true)
-                    onNotify(SeedSnackbarMessage("비밀번호 복사됨 — 30초 후 클립보드에서 삭제", tone: .positive))
-                }
-            }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.seedIcon())
-            .help("비밀번호 복사")
-
             Menu {
                 Button("삭제", systemImage: "trash", role: .destructive, action: onDelete)
             } label: {
@@ -146,6 +150,13 @@ private struct CredentialRow: View {
             .help("더보기")
         }
         .seedListRow()
+        .onChange(of: passwordFocused) { old, new in
+            // Enter 없이 다른 곳을 클릭해도 저장하고 복사 모드로 복귀 (§3.3 인라인 편집)
+            if old && !new && isEditing {
+                commitPassword()
+                isEditing = false
+            }
+        }
     }
 
     private func reveal() {
@@ -154,6 +165,12 @@ private struct CredentialRow: View {
             passwordText = CredentialService.password(of: credential)
             revealed = true
         }
+    }
+
+    /// 표시(인증) 이후의 복사 — 이미 화면에 보이는 값이라 재인증하지 않는다.
+    private func copyPassword() {
+        ClipboardService.copy(CredentialService.password(of: credential), clearAfterDelay: true)
+        onNotify(SeedSnackbarMessage("비밀번호 복사됨 — 30초 후 클립보드에서 삭제", tone: .positive))
     }
 
     private func commitPassword() {
