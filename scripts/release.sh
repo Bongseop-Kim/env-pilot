@@ -99,7 +99,7 @@ tag="v$version"
 release_dir="$repo_root/build/release/$tag"
 
 if [[ -e "$release_dir" ]]; then
-    echo "$release_dir가 이미 있습니다. 기존 결과를 옮기거나 삭제한 뒤 다시 실행하세요." >&2
+    echo "${release_dir}가 이미 있습니다. 기존 결과를 옮기거나 삭제한 뒤 다시 실행하세요." >&2
     exit 1
 fi
 mkdir -p "$release_dir"
