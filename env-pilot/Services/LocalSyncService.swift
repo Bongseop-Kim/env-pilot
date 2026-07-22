@@ -50,6 +50,7 @@ enum LocalSyncService {
         var issues: [String] = []
         var changed = false
         var isSynced = false
+        var safety: [GitSafetyService.Report] = []  // reconcile이 이미 계산한 안전성 리포트 — 호출부 재계산 방지
     }
 
     static let skippedDirectoryNames: Set<String> = [
@@ -165,8 +166,10 @@ enum LocalSyncService {
             catch { result.issues.append(".env 파일 목록 저장 실패: \(error.localizedDescription)") }
         }
 
+        let safetyReports = GitSafetyService.check(repo: repo, rootURL: rootURL)
+        result.safety = safetyReports
         var safety: [String: GitSafetyService.Report] = [:]
-        for report in GitSafetyService.check(repo: repo, rootURL: rootURL) {
+        for report in safetyReports {
             safety[report.targetPath] = report
         }
 

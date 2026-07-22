@@ -24,6 +24,7 @@ struct ContentView: View {
     @State private var healthByRepo: [String: HealthStatus] = [:]
     @State private var repoPendingDelete: Repository?
     @State private var outputWatchers: [String: OutputFileWatcher] = [:]
+    @State private var lastSyncedRevisions: [String: Int] = [:]  // repo별 마지막 sync 시점 콘텐츠 리비전
 
     private var selectedRepository: Repository? {
         guard case .repository(let id) = selection else { return nil }
@@ -191,7 +192,7 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didBecomeActiveNotification)) { _ in
             env_pilotApp.dedupeAfterSync(context)  // §3.13: CloudKit 병합 후 Workspace 중복 정리
-            restartOutputWatchers()
+            // ponytail: watcher 재생성은 watcherRevision onChange가 대상 변경 시에만 처리 — 포커스마다 N개 스트림 teardown/rebuild하던 것 제거.
             syncLocalFiles()
             refreshSidebarHealth()
         }
@@ -228,8 +229,11 @@ struct ContentView: View {
     }
 
     private func syncLocalFiles() {
-        for repo in repositories {
+        // ponytail: 콘텐츠가 바뀐 repo만 reconcile — 변수 1개 편집/포커스 복귀에 전 repo 트리 재순회하던 것 제거.
+        // reconcile이 모델을 바꿀 수 있어(adopt/target 발견) 리비전은 실행 후 값으로 저장한다.
+        for repo in repositories where lastSyncedRevisions[repo.uuid] != repo.envContentRevision {
             syncLocalFile(for: repo)
+            lastSyncedRevisions[repo.uuid] = repo.envContentRevision
         }
     }
 
@@ -520,6 +524,7 @@ struct RepositoryDetailView: View {
                 guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
                 let outputURL = rootURL.appendingPathComponent(report.outputRelativePath)
                 try? GitSafetyService.fixPermissions(outputURL: outputURL, rootURL: rootURL)
+                refreshDiffs()   // 권한 변경 → safetyReports는 reconcile이 갱신
                 refreshHealth()
             },
             onInstallHook: { installOrRemoveHook(install: true) },
@@ -557,6 +562,7 @@ struct RepositoryDetailView: View {
         let sync = LocalSyncService.reconcile(repo: repo, rootURL: rootURL, context: context)
         drifts = sync.drifts
         syncIssues = sync.issues
+        safetyReports = sync.safety  // reconcile이 계산한 것을 재사용 — refreshHealth에서 중복 check 안 함
         diffs = ExampleDiffService.scan(repo: repo, rootURL: rootURL, context: context)
     }
 
@@ -594,7 +600,7 @@ struct RepositoryDetailView: View {
     private func refreshHealth() {
         guard let rootURL = RepositoryService.resolveBookmark(repo) else { return }
         healthItems = HealthService.check(repo: repo, rootURL: rootURL)
-        safetyReports = GitSafetyService.check(repo: repo, rootURL: rootURL)
+        // safetyReports는 refreshDiffs(reconcile)가 단일 출처. 여기서 재계산하지 않는다.
         claudeEnvDenied = GitSafetyService.claudeEnvDenyStatus(rootURL: rootURL)
         agentsRuleInstalled = GitSafetyService.agentsMdEnvRuleStatus(rootURL: rootURL)
         hookInstalled = GitInfo.gitDirectory(of: rootURL) != nil
@@ -668,9 +674,10 @@ struct AuthGraceBadge: View {
     @State private var showExtendConfirm = false
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { timeline in
-            let remaining = Int(BiometricGate.graceRemaining(at: timeline.date).rounded(.up))
-            if BiometricGate.isEnabled {
+        // ponytail: isEnabled 게이트를 TimelineView 밖으로 — 생체인증 미사용 시 매초 리드로우 자체를 없앤다.
+        if BiometricGate.isEnabled {
+            TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                let remaining = Int(BiometricGate.graceRemaining(at: timeline.date).rounded(.up))
                 Button {
                     if remaining > 0 {
                         showExtendConfirm = true
@@ -692,12 +699,12 @@ struct AuthGraceBadge: View {
                       ? "잠금 해제됨 — \(remaining)초 동안 비밀번호 확인 없이 Secret을 표시·복사할 수 있습니다. 클릭하면 1분으로 초기화"
                       : "잠금 상태 — 클릭해서 잠금 해제")
             }
-        }
-        .alert("잠금 해제 시간을 다시 1분으로 초기화할까요?", isPresented: $showExtendConfirm) {
+            .alert("잠금 해제 시간을 다시 1분으로 초기화할까요?", isPresented: $showExtendConfirm) {
             Button("초기화") { BiometricGate.extendGrace() }
             Button("취소", role: .cancel) {}
-        } message: {
-            Text("남은 시간과 관계없이 지금부터 다시 \(Int(BiometricGate.graceInterval))초 동안 비밀번호 확인 없이 Secret을 표시·복사할 수 있습니다.")
+            } message: {
+                Text("남은 시간과 관계없이 지금부터 다시 \(Int(BiometricGate.graceInterval))초 동안 비밀번호 확인 없이 Secret을 표시·복사할 수 있습니다.")
+            }
         }
     }
 }

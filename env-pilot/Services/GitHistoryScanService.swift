@@ -105,7 +105,11 @@ enum GitHistoryScanService {
             } else if type == 7 {  // REF_DELTA: 20바이트 base sha
                 offset += 20
             }
-            guard let (body, consumed) = inflate(data, from: offset) else { return }
+            // ponytail: tree(2)·delta(6,7)만 본문이 필요. blob/commit/tag는 offset 전진용으로 스트림만
+            // 소비하고 저장 생략(outputLimit 0) — 대형 pack에서 blob 복사가 메모리·CPU의 대부분이라 이게 큰 절감.
+            let needsBody = type == 2 || type == 6 || type == 7
+            guard let (body, consumed) = inflate(data, from: offset,
+                                                 outputLimit: needsBody ? 8 << 20 : 0) else { return }
             offset += consumed
 
             if type == 2 {  // tree — 정식 파싱
