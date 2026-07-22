@@ -161,7 +161,8 @@ enum BundleCodec {
         let key: String
         let newValue: String
         let kind: ImportService.Item.Kind
-        var id: String { "\(group)#\(key)" }
+        let environmentName: String  // legacy ""와 filePath 스코프가 같은 라벨로 묶여도 id는 구분
+        var id: String { "\(group)#\(environmentName)#\(key)" }
     }
 
     /// 미리보기용 병합 플랜. 무시 마커(isIgnored)는 목록에 노출하지 않고 execute에서 조용히 반영.
@@ -189,7 +190,8 @@ enum BundleCodec {
                     } else {
                         kind = .add
                     }
-                    items.append(MergeItem(group: group, key: varData.key, newValue: varData.value, kind: kind))
+                    items.append(MergeItem(group: group, key: varData.key, newValue: varData.value,
+                                           kind: kind, environmentName: varData.environmentName))
                 }
             }
         }
@@ -241,7 +243,7 @@ enum BundleCodec {
 
                 for varData in targetData.variables {
                     let group = mergeGroup(repoName: repoData.name, target: targetData, variable: varData)
-                    let itemID = "\(group)#\(varData.key)"
+                    let itemID = "\(group)#\(varData.environmentName)#\(varData.key)"
                     let existing = (target.variables ?? []).first {
                         $0.key == varData.key && $0.environmentName == varData.environmentName
                     }

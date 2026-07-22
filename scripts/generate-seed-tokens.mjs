@@ -6,7 +6,11 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const SEED = process.argv[2] ?? "/Users/duegosystem/git/seed-design";
+const SEED = process.argv[2] ?? process.env.SEED_DESIGN_PATH;
+if (!SEED) {
+  console.error("Usage: node scripts/generate-seed-tokens.mjs <seed-design 경로> (또는 SEED_DESIGN_PATH 설정)");
+  process.exit(1);
+}
 const GEN = path.join(SEED, "packages/rootage/__generated__");
 const ROOT = path.dirname(fileURLToPath(new URL(".", import.meta.url)));
 const OUT = path.join(ROOT, "env-pilot/DesignSystem/Tokens");

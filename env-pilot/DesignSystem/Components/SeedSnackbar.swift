@@ -20,7 +20,8 @@ extension View {
                     .padding(SeedSpacing.x2)
                     .transition(.opacity.combined(with: .scale(scale: 0.8)))
                     .task(id: current) {
-                        try? await Task.sleep(for: .seconds(2.5))
+                        // 취소(새 메시지로 교체)면 새 메시지를 지우지 않도록 여기서 종료
+                        guard (try? await Task.sleep(for: .seconds(2.5))) != nil else { return }
                         message.wrappedValue = nil
                     }
             }

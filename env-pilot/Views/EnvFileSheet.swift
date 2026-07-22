@@ -59,15 +59,16 @@ struct EnvFileSheet: View {
             return
         }
 
+        let path = relativePath.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
             let savedTarget: Target
             if let target {
                 try EnvFileService.rename(
-                    target, to: relativePath, rootURL: rootURL, context: context)
+                    target, to: path, rootURL: rootURL, context: context)
                 savedTarget = target
             } else {
                 savedTarget = try EnvFileService.create(
-                    relativePath: relativePath, in: repo, rootURL: rootURL, context: context)
+                    relativePath: path, in: repo, rootURL: rootURL, context: context)
             }
             onSaved(savedTarget)
             dismiss()
