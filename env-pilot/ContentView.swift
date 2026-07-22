@@ -287,6 +287,7 @@ struct RepositoryDetailView: View {
                                          missing: [Variable], target: Target)?
     @State private var healthItems: [HealthService.Item] = []
     @State private var safetyReports: [GitSafetyService.Report] = []
+    @State private var historyLeaks: [String]?
     @State private var claudeEnvDenied: Bool?
     @State private var agentsRuleInstalled = false
     @State private var pendingAddKey: String?
@@ -480,6 +481,7 @@ struct RepositoryDetailView: View {
                 items: healthItems,
                 safetyReports: safetyReports,
                 hookInstalled: hookInstalled,
+                historyLeaks: historyLeaks,
                 claudeEnvDenied: claudeEnvDenied,
                 agentsRuleInstalled: agentsRuleInstalled,
                 onSelectMissingKey: { filePath, key in
@@ -595,6 +597,12 @@ struct RepositoryDetailView: View {
         hookInstalled = GitInfo.gitDirectory(of: rootURL) != nil
             ? GitSafetyService.isHookInstalled(rootURL: rootURL)
             : nil
+        // 히스토리 스캔은 pack 전체 inflate라 첫 실행이 느릴 수 있어 백그라운드로.
+        // 결과는 fingerprint 캐시되어 이후 호출은 즉시 반환된다.
+        Task.detached(priority: .utility) {
+            let leaks = GitHistoryScanService.scan(rootURL: rootURL)
+            await MainActor.run { historyLeaks = leaks }
+        }
     }
 
     private func normalizeSelectedFile() {

@@ -17,6 +17,7 @@ struct HealthView: View {
     let items: [HealthService.Item]
     let safetyReports: [GitSafetyService.Report]
     let hookInstalled: Bool?   // nil = Git 저장소 아님 → hook 섹션 숨김
+    let historyLeaks: [String]? // Git 히스토리에서 발견된 .env 파일명. nil = 비Git 또는 스캔 중
     let claudeEnvDenied: Bool? // nil = .claude 설정 없음 → Claude 행 숨김
     let agentsRuleInstalled: Bool // AGENTS.md 공통 규칙 — 모든 에이전트 대상이라 항상 표시
     let onSelectMissingKey: (_ filePath: String, _ key: String) -> Void
@@ -29,6 +30,7 @@ struct HealthView: View {
 
     private var allHealthy: Bool {
         items.allSatisfy { $0.status == .healthy } && !safetyReports.contains(where: \.hasIssue)
+            && (historyLeaks ?? []).isEmpty
     }
 
     var body: some View {
@@ -47,6 +49,7 @@ struct HealthView: View {
                     healthSections
                     safetySection
                 }
+                historySection
                 hookSection
                 agentSection
             }
@@ -86,6 +89,43 @@ struct HealthView: View {
                 }
             }
         }
+    }
+
+    /// Git 히스토리에 커밋된 적 있는 .env — git rm으로 지워지지 않는 과거 노출 감지.
+    @ViewBuilder private var historySection: some View {
+        if let historyLeaks {
+            Section("Git 히스토리") {
+                if historyLeaks.isEmpty {
+                    Label("Git 히스토리에서 .env 흔적이 발견되지 않았습니다",
+                          systemImage: "checkmark.shield.fill")
+                        .foregroundStyle(SeedColor.fgPositive)
+                } else {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("과거 커밋에 남아 있음: \(historyLeaks.joined(separator: ", "))",
+                              systemImage: "xmark.octagon.fill")
+                            .foregroundStyle(SeedColor.fgCritical)
+                        HStack {
+                            Text("git rm으로는 지워지지 않습니다. 히스토리에서 제거하고 노출된 키를 로테이션하세요.")
+                                .font(SeedTypography.body)
+                                .foregroundStyle(SeedColor.fgNeutralMuted)
+                            Button("정리 명령 복사") {
+                                ClipboardService.copy(Self.cleanupCommand(historyLeaks),
+                                                      clearAfterDelay: false)
+                            }
+                            .buttonStyle(.seed(.neutralWeak, size: .xsmall))
+                            .help("git filter-repo로 히스토리에서 해당 파일을 제거하는 명령을 복사합니다")
+                        }
+                    }
+                    .seedListRow()
+                }
+            }
+        }
+    }
+
+    /// 모든 깊이의 해당 파일명을 히스토리에서 제거 (fnmatch의 *는 /도 매칭).
+    static func cleanupCommand(_ names: [String]) -> String {
+        let globs = names.flatMap { ["--path-glob '\($0)'", "--path-glob '*/\($0)'"] }
+        return "git filter-repo --invert-paths \(globs.joined(separator: " ")) --force"
     }
 
     /// §3.19 — 스테이징된 .env 파일 커밋을 차단하는 pre-commit hook 설치/제거.
