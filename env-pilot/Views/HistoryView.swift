@@ -145,7 +145,7 @@ struct HistoryView: View {
                     Text(sourceLabel(batch[0].source)).fontWeight(.medium)
                     Text("\(batch.count)개 변경").foregroundStyle(SeedColor.fgNeutralMuted)
                 }
-                Text(subtitle(batch[0]))
+                Text(subtitle(batch[0], includeSource: false))
                     .font(SeedTypography.body)
                     .foregroundStyle(SeedColor.fgNeutralMuted)
             }
@@ -158,10 +158,10 @@ struct HistoryView: View {
     }
 
     /// "repo · 파일경로 · 출처" — 빈 항목은 생략 (Accounts 이력은 파일 경로가 없다).
-    private func subtitle(_ entry: HistoryEntry) -> String {
+    private func subtitle(_ entry: HistoryEntry, includeSource: Bool = true) -> String {
         [entry.repositoryName,
          entry.targetPath.isEmpty ? nil : entry.targetPath,
-         entry.source == "manual" ? nil : sourceLabel(entry.source)]
+         !includeSource || entry.source == "manual" ? nil : sourceLabel(entry.source)]
             .compactMap { $0 }
             .joined(separator: " · ")
     }
